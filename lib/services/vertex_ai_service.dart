@@ -6,15 +6,18 @@ import '../models/chat_message.dart';
 class VertexAIService {
   static const String _projectId = 'vito-app-463903';
   static const String _location = 'us-central1';
-  static const String _model = 'gemini-2.0-flash-lite'; 
-  
+  static const String _model = 'gemini-2.0-flash-lite';
+
   static AutoRefreshingAuthClient? _authClient;
 
-  // El método de inicialización no cambia
   static Future<void> initialize() async {
+    // Si ya está inicializado, no hacer nada.
+    if (_authClient != null) return;
     try {
-      final credentialsJson = await rootBundle.loadString('assets/service-account-key.json');
-      final credentials = ServiceAccountCredentials.fromJson(json.decode(credentialsJson));
+      final credentialsJson =
+          await rootBundle.loadString('assets/service-account-key.json');
+      final credentials =
+          ServiceAccountCredentials.fromJson(json.decode(credentialsJson));
       final scopes = ['https://www.googleapis.com/auth/cloud-platform'];
       _authClient = await clientViaServiceAccount(credentials, scopes);
       print('Vertex AI initialized successfully');
@@ -24,106 +27,122 @@ class VertexAIService {
     }
   }
 
+  /// Proporciona consejos y conversación general sobre hábitos.
   static Future<String> getHabitAdvice({
     required List<ChatMessage> conversationHistory,
     required Map<String, dynamic> userContext,
   }) async {
-    try {
-      if (_authClient == null) {
-        await initialize();
-      }
-
-      final endpoint = 'https://$_location-aiplatform.googleapis.com/v1/projects/$_projectId/locations/$_location/publishers/google/models/$_model:generateContent';
-
-      // Instrucción del sistema para guiar a la IA
-      final systemPrompt = '''
-      Eres Vito, un coach de bienestar y hábitos especializado en mindfulness, salud mental, autocuidado y calidad de vida. Tu enfoque principal es ayudar a las personas a desarrollar hábitos conscientes y sostenibles que mejoren su día a día. No das consejos genéricos ni abarcas temas fuera de esta área (como negocios, tecnología o relaciones complejas), a menos que estén directamente relacionados con el bienestar personal.
-
-      🎯 TU ROL:
-      Eres un guía amable, motivador y directo al grano. Escuchas activamente, haces preguntas poderosas y ofreces respuestas prácticas, breves y empáticas. Usas emojis de forma natural para hacer las respuestas más cálidas y atractivas 😊✨.
-
-      🌱 EJES PRINCIPALES:
-      1. Mindfulness y meditación 🧘
-      2. Hábitos saludables y sostenibles 🪴
-      3. Manejo del estrés y emociones 😌
-      4. Rutinas de autocuidado 🛁
-      5. Sueño y descanso 💤
-      6. Propósito y enfoque diario 🎯
-
-      📌 REGLAS CLAVE:
-      1. Siempre mantén el contexto de la conversación actual.
-      2. Usa el contexto del usuario que te proporciono, pero NO inventes información.
-      3. Si el usuario no tiene hábitos aún (`habits: []`) y te pide crear un plan, NO asumas un hábito. Pregunta cuál le gustaría trabajar, por ejemplo:  
-        👉 “¡Perfecto! ¿Sobre qué hábito te gustaría que creemos un plan? 📝”
-      4. Si el usuario menciona estar abrumado, estresado o perdido, prioriza sugerencias suaves y conscientes, no planes exigentes.
-      5. Si el usuario cambia de idioma, responde automáticamente en ese idioma.
-      6. Sé positivo y alentador, pero no exageres ni uses frases vacías. Sé auténtico.
-
-      🧠 EJEMPLO DE RESPUESTAS:
-      - “¡Claro! Empezar con solo 5 minutos al día es una gran forma de incorporar la meditación 🧘. ¿Te gustaría que te recuerde una hora para hacerlo?”
-      - “Si estás buscando más calma en tu día, podrías comenzar con respiraciones conscientes después de despertar 🌅. ¿Te gustaría una rutina simple para eso?”
-
-      Tu misión es ayudar a los usuarios a reconectar con ellos mismos a través de pequeños cambios diarios 💫.
+    final systemPrompt = '''
+      Eres Vito, un coach de bienestar y hábitos. Eres amable, motivador y directo. Usas emojis de forma natural 😊✨.
+      Tus ejes son: Mindfulness 🧘, hábitos saludables 🪴, manejo del estrés 😌, y propósito diario 🎯.
+      REGLAS CLAVE:
+      1. Usa el contexto del usuario que te proporciono, pero no lo menciones directamente.
+      2. Si el usuario no tiene hábitos y pide un plan, pregúntale sobre qué hábito le gustaría trabajar.
+      3. Si el usuario parece abrumado, sugiere acciones pequeñas y conscientes.
+      4. Responde siempre en el idioma del usuario.
       ''';
 
+    final contents = conversationHistory.map((msg) {
+      if (msg.text.contains("Hola! Soy Vito")) return null;
+      return {'role': msg.isUser ? 'user' : 'model', 'parts': [{'text': msg.text}]};
+    }).whereType<Map<String, dynamic>>().toList();
 
-      // Transforma el historial de la app al formato que espera la API de Gemini
-      final contents = conversationHistory.map((msg) {
-        if (msg.text.contains("Hola! Soy Vito")) {
-          return null;
-        }
-        // Se define explícitamente el tipo del Map para mayor seguridad
-        return <String, dynamic>{
-          'role': msg.isUser ? 'user' : 'model',
-          'parts': <Map<String, String>>[{'text': msg.text}]
-        };
-      }).whereType<Map<String, dynamic>>().toList(); // Filtra nulos y asegura el tipo
+    if (contents.isNotEmpty && contents.last['role'] == 'user') {
+      final lastUserPrompt = contents.last['parts'][0]['text'];
+      String contextString = '''
+        ---
+        Contexto del Usuario (Usa esta información para personalizar tu respuesta):
+        - Hábitos actuales: ${userContext['habits']}
+        - Estado de ánimo hoy: ${userContext['moodToday']}
+        ---
+        ''';
+      contents.last['parts'][0]['text'] = "$contextString\n\nConsulta del Usuario: $lastUserPrompt";
+    }
 
-      // <<<--- BLOQUE CORREGIDO PARA EVITAR ERRORES DE TIPO --- >>>
-      // Inyecta el contexto del usuario en el último mensaje para que siempre esté actualizado
-      if (contents.isNotEmpty) {
-        // Se trabaja con una copia tipada para evitar errores
-        final Map<String, dynamic> lastContent = contents.last;
+    return _generateContent(systemPrompt, contents);
+  }
 
-        if (lastContent['role'] == 'user') {
-          // Se accede a los datos de forma segura con conversiones de tipo (casting)
-          final List<dynamic> parts = lastContent['parts'] as List<dynamic>;
-          final Map<String, dynamic> firstPart = parts.first as Map<String, dynamic>;
-          final String lastUserPrompt = firstPart['text'] as String;
-
-          String contextString = '''
----
-Contexto Actual del Usuario (NO lo menciones a menos que sea relevante):
-- Hábitos: ${userContext['habits']}
-- Tasa de completación hoy: ${userContext['completionRate']}%
-- Racha más alta: ${userContext['streak']} días
-- Categorías de enfoque: ${userContext['categories']}
----
-''';
-          // Reemplaza el texto del último mensaje para añadir el contexto
-          firstPart['text'] = "$contextString\n\nConsulta del Usuario: $lastUserPrompt";
-        }
-      }
-
-      final requestBody = {
-        'systemInstruction': {
-          'parts': [{'text': systemPrompt}]
-        },
-        'contents': contents,
-        'generationConfig': {
-          'temperature': 0.8,
-          'topK': 40,
-          'topP': 0.95,
-          'maxOutputTokens': 1024,
-        },
-        'safetySettings': [
-          {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'},
-          {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'},
-          {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'},
-          {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'}
+  /// Genera sugerencias de hábitos iniciales durante el onboarding.
+  static Future<String> getOnboardingSuggestions(Map<String, dynamic> userProfile) async {
+    final systemPrompt = '''
+      Eres un experto en bienestar. Tu tarea es analizar el perfil de un nuevo usuario y generar 5 hábitos iniciales personalizados.
+      REGLAS:
+      1. Basa tus sugerencias en los datos proporcionados: 'goals', 'interests', y 'experienceLevel'.
+      2. Si 'experienceLevel' es 'beginner', los hábitos deben ser muy simples.
+      3. Asigna a cada hábito una categoría válida: 'health', 'mind', 'productivity', 'creativity', 'relationships', 'finance'.
+      4. Tu respuesta DEBE ser únicamente un objeto JSON válido, sin texto adicional.
+      ESTRUCTURA JSON:
+      {
+        "habits": [
+          { "name": "Nombre del Hábito 1", "category": "categoria_valida" },
+          { "name": "Nombre del Hábito 2", "category": "categoria_valida" },
+          { "name": "Nombre del Hábito 3", "category": "categoria_valida" },
+          { "name": "Nombre del Hábito 4", "category": "categoria_valida" },
+          { "name": "Nombre del Hábito 5", "category": "categoria_valida" }
         ]
-      };
+      }
+    ''';
+    
+    final userContextPrompt = 'Analiza el siguiente perfil y genera los hábitos:\n${jsonEncode(userProfile)}';
+    final contents = [{'role': 'user', 'parts': [{'text': userContextPrompt}]}];
+    
+    return _generateContent(systemPrompt, contents, forceJsonOutput: true);
+  }
+  
+  /// Genera una rutina de hábitos basada en un objetivo del usuario.
+  static Future<String> getRoutine({required String userGoal, required Map<String, dynamic> userContext}) async {
+    final systemPrompt = '''
+      Eres un experto en bienestar. Tu tarea es crear una rutina de 3 a 4 hábitos basada en el objetivo de un usuario.
+      REGLAS:
+      1. La rutina debe ser coherente y los hábitos deben apoyarse entre sí.
+      2. Considera el contexto del usuario para adaptar la dificultad y el enfoque de la rutina.
+      3. Asigna a cada hábito una categoría válida: 'health', 'mind', 'productivity', 'creativity', 'relationships', 'finance'.
+      4. Tu respuesta DEBE ser únicamente un objeto JSON válido, sin texto adicional.
+      ESTRUCTURA JSON:
+      {
+        "habits": [
+          { "name": "Nombre del Hábito 1", "category": "categoria_valida" },
+          { "name": "Nombre del Hábito 2", "category": "categoria_valida" },
+          { "name": "Nombre del Hábito 3", "category": "categoria_valida" }
+        ]
+      }
+    ''';
+    
+    final userContextPrompt = 'Crea una rutina para el siguiente objetivo: "$userGoal".\nContexto del usuario: ${jsonEncode(userContext)}';
+    final contents = [{'role': 'user', 'parts': [{'text': userContextPrompt}]}];
+    
+    return _generateContent(systemPrompt, contents, forceJsonOutput: true);
+  }
 
+  /// Método base privado para interactuar con la API de Gemini.
+  static Future<String> _generateContent(String systemPrompt, List<Map<String, dynamic>> contents, {bool forceJsonOutput = false}) async {
+    if (_authClient == null) {
+      await initialize();
+    }
+    
+    final endpoint = 'https://$_location-aiplatform.googleapis.com/v1/projects/$_projectId/locations/$_location/publishers/google/models/$_model:generateContent';
+
+    final requestBody = {
+      'systemInstruction': {
+        'parts': [{'text': systemPrompt}]
+      },
+      'contents': contents,
+      'generationConfig': {
+        'temperature': 0.8,
+        'topK': 40,
+        'topP': 0.95,
+        'maxOutputTokens': 1024,
+        if (forceJsonOutput) 'responseMimeType': 'application/json',
+      },
+      'safetySettings': [
+        {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'},
+        {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'},
+        {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'},
+        {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'}
+      ]
+    };
+
+    try {
       final response = await _authClient!.post(
         Uri.parse(endpoint),
         headers: {'Content-Type': 'application/json'},
@@ -143,10 +162,12 @@ Contexto Actual del Usuario (NO lo menciones a menos que sea relevante):
       print('Vertex AI response status: ${response.statusCode}');
       print('Response body: ${response.body}');
       
-      return "Error: No se recibió una respuesta válida del servidor (Código: ${response.statusCode}).";
+      throw Exception('Error: No se recibió una respuesta válida del servidor (Código: ${response.statusCode})');
+
     } catch (e) {
       print('Error calling Vertex AI: $e');
-      return "Lo siento, ocurrió un error al contactar al asistente de IA. Por favor, intenta nuevamente.";
+      throw Exception("Lo siento, ocurrió un error al contactar al asistente de IA. Por favor, intenta nuevamente.");
     }
   }
 }
+// End of file

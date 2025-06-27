@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+
 import '../services/firestore_service.dart';
 import '../theme/app_colors.dart';
 
@@ -13,30 +16,25 @@ class StatsScreen extends StatefulWidget {
 }
 
 class _StatsScreenState extends State<StatsScreen> {
-  String _selectedPeriod = 'week'; // Por ahora, se mantiene para la UI
+  String _selectedPeriod = 'week';
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
-      // Usamos un StreamBuilder para escuchar los datos de los hábitos en tiempo real.
       body: StreamBuilder<QuerySnapshot>(
         stream: FirestoreService.streamHabits(),
         builder: (context, snapshot) {
-          // Mientras se cargan los datos, muestra un indicador de progreso.
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          // Si hay un error, lo mostramos.
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
-          // Si no hay datos, mostramos un mensaje amigable.
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return _buildEmptyState();
           }
 
-          // Si tenemos datos, los procesamos y construimos la UI.
           final habitsDocs = snapshot.data!.docs;
           final processedStats = _processStats(habitsDocs);
 
@@ -44,6 +42,8 @@ class _StatsScreenState extends State<StatsScreen> {
             slivers: [
               _buildSliverAppBar(),
               _buildPeriodSelector(),
+              // <<< NUEVO >>> Widget para el análisis semanal de la IA
+              _buildWeeklyAnalysisSection(),
               _buildOverviewSection(processedStats),
               _buildCompletionChartSection(processedStats),
               _buildCategoryBreakdownSection(processedStats),
@@ -61,12 +61,11 @@ class _StatsScreenState extends State<StatsScreen> {
   // --- Lógica de Procesamiento de Datos ---
 
   Map<String, dynamic> _processStats(List<QueryDocumentSnapshot> docs) {
-    // --- Cálculo de Estadísticas Generales ---
     final totalHabits = docs.length;
     int totalCompletions = 0;
     int possibleCompletions = 0;
-    Map<String, List<int>> categoryCompletions = {}; // category -> [completado, posible]
-    Map<String, int> habitCompletions = {}; // habitId -> total completado
+    Map<String, List<int>> categoryCompletions = {};
+    Map<String, int> habitCompletions = {};
 
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
@@ -83,7 +82,6 @@ class _StatsScreenState extends State<StatsScreen> {
         final date = createdAt.add(Duration(days: i));
         if (days.contains(date.weekday)) {
           possibleCompletions++;
-          
           categoryCompletions.putIfAbsent(category, () => [0, 0]);
           categoryCompletions[category]![1]++;
           if(completions.any((c) => _isSameDay(c.toDate(), date))) {
@@ -95,7 +93,6 @@ class _StatsScreenState extends State<StatsScreen> {
 
     final double overallCompletionRate = possibleCompletions > 0 ? (totalCompletions / possibleCompletions) * 100 : 0.0;
 
-    // --- Cálculo del Gráfico Semanal ---
     final weeklySpots = List.generate(7, (index) {
       final day = DateTime.now().subtract(Duration(days: 6 - index));
       int completionsOnDay = 0;
@@ -117,7 +114,6 @@ class _StatsScreenState extends State<StatsScreen> {
       return FlSpot(index.toDouble(), rate);
     });
 
-    // --- Cálculo de Rendimiento de Hábitos ---
     final habitPerformance = docs.map((doc) {
       final data = doc.data() as Map<String, dynamic>;
       final completions = List<Timestamp>.from(data['completions'] ?? []);
@@ -175,22 +171,9 @@ class _StatsScreenState extends State<StatsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  Text(
-                    'Tu Progreso',
-                    style: GoogleFonts.poppins(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
+                  Text('Tu Progreso', style: GoogleFonts.poppins(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 8),
-                  Text(
-                    'Rastrea tus hábitos y observa tu crecimiento',
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
+                  Text('Rastrea tus hábitos y observa tu crecimiento', style: GoogleFonts.inter(fontSize: 16, color: Colors.white.withOpacity(0.9))),
                 ],
               ),
             ),
@@ -207,16 +190,9 @@ class _StatsScreenState extends State<StatsScreen> {
         children: [
           const Icon(Icons.show_chart_rounded, size: 80, color: Colors.grey),
           const SizedBox(height: 20),
-          Text(
-            'Aún no hay estadísticas',
-            style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
+          Text('Aún no hay estadísticas', style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
-          Text(
-            '¡Empieza a registrar tus hábitos para ver tu progreso aquí!',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(fontSize: 16, color: Colors.grey[600]),
-          ),
+          Text('¡Empieza a registrar tus hábitos para ver tu progreso aquí!', textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 16, color: Colors.grey[600])),
         ],
       ),
     );
@@ -239,6 +215,62 @@ class _StatsScreenState extends State<StatsScreen> {
       ),
     );
   }
+  
+  // <<< NUEVO >>> Widget para mostrar el análisis semanal de la IA
+  Widget _buildWeeklyAnalysisSection() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return const SliverToBoxAdapter(child: SizedBox.shrink());
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('weekly_analysis') // La colección donde se guardará el análisis
+          .orderBy('generatedAt', descending: true)
+          .limit(1)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          // No muestra nada si no hay análisis disponible
+          return const SliverToBoxAdapter(child: SizedBox.shrink());
+        }
+        
+        final analysisData = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+        
+        return SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: AppColors.primary.withOpacity(0.2))
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.auto_awesome, color: AppColors.primary),
+                    const SizedBox(width: 12),
+                    Text('Tu Resumen Semanal por Vito', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Se usa Markdown para dar formato al texto de la IA (negritas, listas, etc.)
+                MarkdownBody(
+                  data: analysisData['summary'] ?? 'No hay resumen disponible.',
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                    p: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 15, height: 1.5)
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Widget _buildOverviewSection(Map<String, dynamic> stats) {
     return SliverToBoxAdapter(
@@ -247,21 +279,11 @@ class _StatsScreenState extends State<StatsScreen> {
         child: Row(
           children: [
             Expanded(
-              child: _buildStatCard(
-                'Total Hábitos',
-                stats['totalHabits'].toString(),
-                Icons.track_changes,
-                AppColors.primary,
-              ),
+              child: _buildStatCard('Total Hábitos', stats['totalHabits'].toString(), Icons.track_changes, AppColors.primary),
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: _buildStatCard(
-                'Completado General',
-                '${stats['overallCompletionRate'].toStringAsFixed(0)}%',
-                Icons.trending_up,
-                AppColors.success,
-              ),
+              child: _buildStatCard('Completado General', '${stats['overallCompletionRate'].toStringAsFixed(0)}%', Icons.trending_up, AppColors.success),
             ),
           ],
         ),
@@ -306,23 +328,9 @@ class _StatsScreenState extends State<StatsScreen> {
         decoration: BoxDecoration(
           color: isSelected ? AppColors.primary : Colors.white,
           borderRadius: BorderRadius.circular(25),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: AppColors.primary.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
+          boxShadow: isSelected ? [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))] : null,
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[700],
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        child: Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.grey[700], fontWeight: FontWeight.w600)),
       ),
     );
   }
@@ -333,42 +341,20 @@ class _StatsScreenState extends State<StatsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
             child: Icon(icon, color: color, size: 24),
           ),
           const SizedBox(height: 16),
-          Text(
-            value,
-            style: GoogleFonts.poppins(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text(value, style: GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
+          Text(title, style: TextStyle(fontSize: 14, color: Colors.grey[600]), overflow: TextOverflow.ellipsis),
         ],
       ),
     );
@@ -377,20 +363,11 @@ class _StatsScreenState extends State<StatsScreen> {
   Widget _buildCompletionChart(List<FlSpot> spots) {
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Progreso Semanal',
-            style: GoogleFonts.poppins(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          Text('Progreso Semanal', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600)),
           const SizedBox(height: 24),
           SizedBox(
             height: 200,
@@ -409,10 +386,7 @@ class _StatsScreenState extends State<StatsScreen> {
                       getTitlesWidget: (value, meta) {
                         const days = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
                         final dayIndex = DateTime.now().subtract(Duration(days: 6 - value.toInt())).weekday - 1;
-                        return Text(
-                          days[dayIndex],
-                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                        );
+                        return SideTitleWidget(axisSide: meta.axisSide, child: Text(days[dayIndex], style: TextStyle(color: Colors.grey[600], fontSize: 12)));
                       },
                     ),
                   ),
@@ -421,8 +395,7 @@ class _StatsScreenState extends State<StatsScreen> {
                       showTitles: true,
                       interval: 25,
                       reservedSize: 40,
-                      getTitlesWidget: (value, meta) =>
-                          Text('${value.toInt()}%', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                      getTitlesWidget: (value, meta) => SideTitleWidget(axisSide: meta.axisSide, child: Text('${value.toInt()}%', style: TextStyle(color: Colors.grey[600], fontSize: 12))),
                     ),
                   ),
                 ),
@@ -439,14 +412,7 @@ class _StatsScreenState extends State<StatsScreen> {
                     dotData: const FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      gradient: LinearGradient(
-                        colors: [
-                          AppColors.gradientStart.withOpacity(0.2),
-                          AppColors.gradientEnd.withOpacity(0.0),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
+                      gradient: LinearGradient(colors: [AppColors.gradientStart.withOpacity(0.2), AppColors.gradientEnd.withOpacity(0.0)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
                     ),
                   ),
                 ],
@@ -462,20 +428,11 @@ class _StatsScreenState extends State<StatsScreen> {
     if (categories.isEmpty) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-           Text(
-            'Rendimiento por Categoría',
-            style: GoogleFonts.poppins(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+           Text('Rendimiento por Categoría', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600)),
           const SizedBox(height: 24),
           ...categories.entries.map((entry) {
             final double progress = entry.value[1] > 0 ? (entry.value[0] / entry.value[1]) : 0.0;
@@ -530,20 +487,14 @@ class _StatsScreenState extends State<StatsScreen> {
     if (habits.isEmpty) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
            Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Mejores Hábitos',
-                style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600),
-              ),
+              Text('Mejores Hábitos', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600)),
               const Icon(Icons.emoji_events, color: AppColors.warning),
             ],
           ),
@@ -573,10 +524,7 @@ class _StatsScreenState extends State<StatsScreen> {
         CircleAvatar(
           radius: 16,
           backgroundColor: rankColor,
-          child: Text(
-            rank.toString(),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
+          child: Text(rank.toString(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         const SizedBox(width: 12),
         Expanded(child: Text(habit, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500))),

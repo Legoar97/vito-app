@@ -2,40 +2,36 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 
-// Importar Screens
+// Screens
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/main_navigation_screen.dart';
-import 'screens/achievements_screen.dart'; // <-- IMPORTANTE: Importar la nueva pantalla
+import 'screens/achievements_screen.dart'; 
 
-// Importar Theme y Provider
+// Theme y Provider
 import 'theme/app_theme.dart';
 import 'providers/theme_provider.dart';
 
-// Importar Servicios
+// Services
 import 'services/notification_service.dart';
 
-// Importar Localizations
+// Localizations
 import 'l10n/app_localizations.dart';
 
 void main() async {
-  // Asegura que los bindings de Flutter estén inicializados
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Inicializa Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  // Inicializa el servicio de notificaciones
   await NotificationService.initialize();
+  await NotificationService.requestPermissions();
 
-  // Envolver la app con ChangeNotifierProvider para el tema
   runApp(
     ChangeNotifierProvider(
       create: (context) => ThemeProvider(),
@@ -44,7 +40,6 @@ void main() async {
   );
 }
 
-/// Una clase auxiliar para que GoRouter pueda escuchar los cambios de autenticación de Firebase.
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     notifyListeners();
@@ -52,7 +47,6 @@ class GoRouterRefreshStream extends ChangeNotifier {
           (dynamic _) => notifyListeners(),
         );
   }
-
   late final StreamSubscription<dynamic> _subscription;
 
   @override
@@ -67,81 +61,78 @@ class VitoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Consumir el ThemeProvider para que la app reaccione a los cambios
     final themeProvider = Provider.of<ThemeProvider>(context);
-
     return MaterialApp.router(
       title: 'Vito',
       debugShowCheckedModeBanner: false,
-      
-      // Configuración de Localización
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      
-      // Configuración de Tema ahora es dinámica gracias al provider
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeProvider.themeMode,
-      
-      // Configuración del Router
       routerConfig: _router,
     );
   }
 }
 
-// --- Configuración del Router con la ruta corregida ---
 final GoRouter _router = GoRouter(
   refreshListenable: GoRouterRefreshStream(FirebaseAuth.instance.authStateChanges()),
   initialLocation: '/',
   routes: [
     GoRoute(
       path: '/',
-      redirect: (_, __) => FirebaseAuth.instance.currentUser != null ? '/home' : '/login',
+      redirect: (context, state) async {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) {
+          return '/login';
+        }
+
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final onboardingCompleted = userDoc.data()?['onboardingCompleted'] ?? false;
+
+        return onboardingCompleted ? '/home' : '/onboarding';
+      },
     ),
-    GoRoute(
-      path: '/login',
-      builder: (context, state) => const LoginScreen(),
-    ),
-    GoRoute(
-      path: '/signup',
-      builder: (context, state) => const SignUpScreen(),
-    ),
-    GoRoute(
-      path: '/onboarding',
-      builder: (context, state) => const OnboardingScreen(),
-    ),
-    // --- INICIO DE LA CORRECCIÓN ---
-    // Ahora '/home' tiene una ruta anidada para los logros.
+    GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+    GoRoute(path: '/signup', builder: (context, state) => const SignUpScreen()),
+    GoRoute(path: '/onboarding', builder: (context, state) => const OnboardingScreen()),
     GoRoute(
       path: '/home',
       builder: (context, state) => const MainNavigationScreen(),
       routes: [
         GoRoute(
-          path: 'achievements', // Esto crea la ruta /home/achievements
+          path: 'achievements', 
           builder: (context, state) => const AchievementsScreen(),
         ),
       ],
     ),
-    // --- FIN DE LA CORRECCIÓN ---
   ],
-  redirect: (BuildContext context, GoRouterState state) {
-    final bool loggedIn = FirebaseAuth.instance.currentUser != null;
-    
-    // Rutas que son de autenticación o públicas
-    final bool isAuthRoute = state.matchedLocation == '/login' ||
-                             state.matchedLocation == '/signup' ||
-                             state.matchedLocation == '/onboarding';
+  // <<< MEJORA >>> Lógica de redirección inteligente
+  redirect: (BuildContext context, GoRouterState state) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final bool loggedIn = user != null;
+    final bool isOnAuthRoute = state.matchedLocation == '/login' || state.matchedLocation == '/signup';
+    final bool isOnOnboarding = state.matchedLocation == '/onboarding';
 
-    // Si el usuario está logueado pero intenta ir a una ruta de autenticación
-    if (loggedIn && isAuthRoute) {
+    if (!loggedIn) {
+      // Si no está logueado, solo puede estar en login o signup
+      return isOnAuthRoute ? null : '/login';
+    }
+
+    // Si está logueado, verificamos el estado del onboarding
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final bool onboardingCompleted = userDoc.data()?['onboardingCompleted'] ?? false;
+
+    if (!onboardingCompleted) {
+      // Si no ha completado el onboarding, DEBE ir a /onboarding
+      return isOnOnboarding ? null : '/onboarding';
+    }
+    
+    // Si ya completó el onboarding, no puede volver a las rutas de auth/onboarding
+    if (isOnAuthRoute || isOnOnboarding) {
       return '/home';
     }
 
-    // Si el usuario NO está logueado y intenta acceder a cualquier ruta que NO sea pública
-    if (!loggedIn && !isAuthRoute) {
-      return '/login';
-    }
-    
     // En cualquier otro caso, permite la navegación.
     return null;
   },

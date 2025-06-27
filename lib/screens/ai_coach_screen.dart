@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'dart:math' as math;
+import 'dart:convert';
+import 'package:intl/intl.dart';
 
 import '../theme/app_colors.dart';
 import '../services/vertex_ai_service.dart';
@@ -20,7 +22,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   final TextEditingController _messageController = TextEditingController();
   final List<ChatMessage> _messages = [
     ChatMessage(
-      text: "¡Hola! Soy Vito, tu coach de bienestar con IA. Estoy aquí para ayudarte a construir mejores hábitos y alcanzar tus metas. ¿En qué te gustaría trabajar hoy?",
+      text: "¡Hola! Soy Vito, tu coach de bienestar con IA. ¿En qué te gustaría enfocarte hoy?",
       isUser: false,
       timestamp: DateTime.now(),
     ),
@@ -28,7 +30,8 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   final ScrollController _scrollController = ScrollController();
   late AnimationController _animationController;
   bool _isTyping = false;
-  bool _showQuickActions = true; // <-- AÑADIDO: Para controlar la visibilidad
+  bool _showQuickActions = true;
+  final User? user = FirebaseAuth.instance.currentUser;
 
   @override
   void initState() {
@@ -63,7 +66,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
           child: Column(
             children: [
               _buildHeader(),
-              // <<<--- MODIFICADO: Animación para ocultar las acciones rápidas
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
                 transitionBuilder: (child, animation) {
@@ -83,7 +85,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   Widget _buildHeader() {
-    // ... (Sin cambios aquí)
     return Container(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -109,23 +110,22 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
           const SizedBox(height: 16),
           Text('Coach de Bienestar IA', style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          Text('Impulsado por Vertex AI', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+          Text('Impulsado por Gemini', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
         ],
       ),
     );
   }
 
   Widget _buildQuickActions() {
-    // ... (Sin cambios aquí)
-     final actions = [
-      {'icon': Icons.lightbulb, 'label': 'Consejos', 'color': AppColors.warning},
-      {'icon': Icons.trending_up, 'label': 'Analizar', 'color': AppColors.success},
-      {'icon': Icons.calendar_today, 'label': 'Planificar', 'color': AppColors.primary},
-      {'icon': Icons.favorite, 'label': 'Motivar', 'color': AppColors.error},
+    final actions = [
+      {'icon': Icons.lightbulb_outline, 'label': 'Consejos', 'color': AppColors.warning},
+      {'icon': Icons.calendar_today_outlined, 'label': 'Planificar', 'color': AppColors.primary},
+      {'icon': Icons.favorite_border, 'label': 'Motivar', 'color': AppColors.error},
+      {'icon': Icons.auto_awesome_motion_outlined, 'label': 'Crear Rutina', 'color': AppColors.success},
     ];
 
     return Container(
-      key: const ValueKey('quickActions'), // Key para el AnimatedSwitcher
+      key: const ValueKey('quickActions'),
       height: 100,
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: ListView.builder(
@@ -176,7 +176,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   Widget _buildChatList() {
-    // ... (Sin cambios aquí)
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
@@ -194,7 +193,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   Widget _buildMessage(ChatMessage message) {
-    // ... (Sin cambios aquí)
     final isUser = message.isUser;
     
     return Padding(
@@ -207,8 +205,8 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
                   colors: [AppColors.gradientStart, AppColors.gradientEnd],
                 ),
                 shape: BoxShape.circle,
@@ -258,7 +256,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
             CircleAvatar(
               radius: 20,
               backgroundColor: Colors.grey[300],
-              child: Icon(Icons.person, color: Colors.grey[600], size: 20),
+              child: const Icon(Icons.person_outline, color: Colors.grey, size: 20),
             ),
           ],
         ],
@@ -267,7 +265,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   Widget _buildTypingIndicator() {
-    // ... (Sin cambios aquí)
     _animationController.repeat();
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -277,8 +274,8 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
           Container(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
                 colors: [AppColors.gradientStart, AppColors.gradientEnd],
               ),
               shape: BoxShape.circle,
@@ -315,7 +312,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   Widget _buildDot(int index) {
-    // ... (Sin cambios aquí)
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -337,7 +333,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   Widget _buildInputField() {
-    // ... (Sin cambios aquí)
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
       decoration: BoxDecoration(
@@ -381,7 +376,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
             ),
             child: IconButton(
               icon: const Icon(Icons.send, color: Colors.white),
-              onPressed: _sendMessage,
+              onPressed: () => _sendMessage(),
             ),
           ),
         ],
@@ -390,21 +385,20 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   void _handleQuickAction(String action) {
-    // ... (Sin cambios aquí)
     String prompt;
     switch (action) {
       case 'Consejos':
-        prompt = '¿Puedes darme algunos consejos para mejorar mis hábitos diarios?';
-        break;
-      case 'Analizar':
-        prompt = '¿Puedes analizar mi progreso de hábitos y sugerir mejoras?';
+        prompt = 'Dame un consejo rápido de bienestar.';
         break;
       case 'Planificar':
-        prompt = 'Ayúdame a crear un plan semanal de hábitos';
+        prompt = 'Ayúdame a planificar mis hábitos para mañana.';
         break;
       case 'Motivar':
-        prompt = 'Necesito algo de motivación para seguir con mis hábitos';
+        prompt = 'Necesito una frase motivadora para seguir adelante.';
         break;
+      case 'Crear Rutina':
+        _showCreateRoutineDialog();
+        return; 
       default:
         return;
     }
@@ -412,18 +406,50 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
     _sendMessage();
   }
 
-  void _sendMessage() async {
-    if (_messageController.text.trim().isEmpty) return;
+  void _showCreateRoutineDialog() {
+    final routineController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Generador de Rutinas IA'),
+          content: TextField(
+            controller: routineController,
+            decoration: const InputDecoration(
+              hintText: 'Ej: "mañanas productivas"',
+              labelText: '¿Qué tipo de rutina quieres?',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (routineController.text.isNotEmpty) {
+                  Navigator.pop(context);
+                  _sendMessage(isRoutineRequest: true, userContent: routineController.text);
+                }
+              },
+              child: const Text('Generar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
-    // <<<--- AÑADIDO: Oculta las acciones rápidas al enviar el primer mensaje
+  void _sendMessage({bool isRoutineRequest = false, String? userContent}) async {
+    final messageText = userContent ?? _messageController.text.trim();
+    if (messageText.isEmpty) return;
+
     if (_showQuickActions) {
-      setState(() {
-        _showQuickActions = false;
-      });
+      setState(() => _showQuickActions = false);
     }
 
     final userMessage = ChatMessage(
-      text: _messageController.text.trim(),
+      text: messageText,
       isUser: true,
       timestamp: DateTime.now(),
     );
@@ -437,34 +463,100 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
     _scrollToBottom();
 
     final userContext = await _getUserContext();
-    
-    // <<<--- MODIFICADO: Prepara el historial para la API
-    // Se revierte la lista aquí para que tenga el orden cronológico correcto (viejo a nuevo)
     final conversationForAPI = _messages.reversed.toList();
-
-    // <<<--- MODIFICADO: Llama al servicio con el historial completo
-    final response = await VertexAIService.getHabitAdvice(
-      conversationHistory: conversationForAPI,
-      userContext: userContext,
-    );
     
-    if(mounted) {
-      setState(() {
-        _isTyping = false;
-        _messages.insert(0, ChatMessage(
-          text: response,
-          isUser: false,
-          timestamp: DateTime.now(),
-        ));
-      });
-    }
+    // NOTA: Asegúrate de tener la función `getRoutine` en `vertex_ai_service.dart`.
+    // Esta función debería aceptar el objetivo del usuario y su contexto,
+    // y devolver un JSON con la estructura { "habits": [...] }.
+    if (isRoutineRequest) {
+      final jsonResponse = await VertexAIService.getRoutine(userGoal: messageText, userContext: userContext);
+      _handleRoutineResponse(jsonResponse);
 
+    } else {
+      final response = await VertexAIService.getHabitAdvice(
+        conversationHistory: conversationForAPI,
+        userContext: userContext,
+      );
+      if (mounted) {
+        setState(() {
+          _isTyping = false;
+          _messages.insert(0, ChatMessage(
+            text: response,
+            isUser: false,
+            timestamp: DateTime.now(),
+          ));
+        });
+      }
+    }
+    
     _animationController.stop();
     _scrollToBottom();
   }
 
+  void _handleRoutineResponse(String jsonResponse) {
+    setState(() => _isTyping = false);
+    try {
+      final decoded = jsonDecode(jsonResponse);
+      final List<dynamic> habits = decoded['habits'];
+      
+      _messages.insert(0, ChatMessage(text: "¡Claro! He preparado esta rutina para ti. ¿Quieres añadirla a tus hábitos?", isUser: false, timestamp: DateTime.now()));
+      
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Rutina Sugerida por Vito'),
+            content: SingleChildScrollView(
+              child: ListBody(
+                children: habits.map<Widget>((habit) {
+                  return ListTile(
+                    leading: Icon(AppColors.getCategoryIcon(habit['category'] ?? 'otros')),
+                    title: Text(habit['name']),
+                  );
+                }).toList(),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+              ElevatedButton(onPressed: () {
+                _addRoutineHabits(habits);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Rutina añadida a tus hábitos!'), backgroundColor: AppColors.success));
+              }, child: const Text('Añadir Hábitos')),
+            ],
+          );
+        }
+      );
+    } catch (e) {
+      _messages.insert(0, ChatMessage(text: "Lo siento, no pude procesar la rutina. Inténtalo de nuevo.", isUser: false, timestamp: DateTime.now()));
+    }
+  }
+
+  Future<void> _addRoutineHabits(List<dynamic> habits) async {
+    if (user == null) return;
+    
+    final batch = FirebaseFirestore.instance.batch();
+    final habitsCollection = FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits');
+
+    for (var habit in habits) {
+      final newHabitRef = habitsCollection.doc();
+      batch.set(newHabitRef, {
+        'name': habit['name'],
+        'category': habit['category'] ?? 'otros',
+        'days': [1, 2, 3, 4, 5, 6, 7], // Por defecto, todos los días
+        'specificTime': {'hour': 8, 'minute': 0}, // Por defecto, 8 AM
+        'notifications': true,
+        'completions': [],
+        'createdAt': Timestamp.now(),
+        'streak': 0,
+        'longestStreak': 0,
+      });
+    }
+
+    await batch.commit();
+  }
+
   void _scrollToBottom() {
-    // ... (Sin cambios aquí)
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -477,75 +569,32 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   }
 
   Future<Map<String, dynamic>> _getUserContext() async {
-    // ... (Sin cambios aquí)
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      return {
-        'habits': [],
-        'completionRate': 0,
-        'streak': 0,
-        'categories': [],
-      };
-    }
+    if (user == null) return {};
 
     try {
-      final habitsSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('habits')
-          .get();
-
-      final habits = habitsSnapshot.docs.map((doc) => doc.data()['name'] as String? ?? 'Hábito sin nombre').toList();
-      
-      int totalHabitsToday = 0;
-      int completedToday = 0;
-      Set<String> categories = {};
-      
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      
-      for (var doc in habitsSnapshot.docs) {
+      final habitsSnapshot = await FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').get();
+      final habitsDetails = habitsSnapshot.docs.map((doc) {
         final data = doc.data();
-        final days = List<int>.from(data['days'] ?? []);
-        
-        if(days.contains(today.weekday)) {
-            totalHabitsToday++;
+        final completions = List<Timestamp>.from(data['completions'] ?? []);
+        final isCompletedToday = completions.any((ts) => DateUtils.isSameDay(ts.toDate(), DateTime.now()));
+        return {
+          'name': data['name'],
+          'frequency': (data['days'] as List).length,
+          'isCompletedToday': isCompletedToday
+        };
+      }).toList();
 
-            final completions = List<Timestamp>.from(data['completions'] ?? []);
-            
-            if (completions.any((ts) {
-                final date = ts.toDate();
-                return date.year == today.year && date.month == today.month && date.day == today.day;
-            })) {
-              completedToday++;
-            }
-        }
-        
-        if (data['category'] != null) {
-          categories.add(data['category']);
-        }
-      }
+      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final moodDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('mood_tracker').doc(todayStr).get();
+      final moodToday = moodDoc.exists ? moodDoc.data()!['mood'] : 'No registrado';
       
-      final completionRate = totalHabitsToday > 0 
-          ? ((completedToday / totalHabitsToday) * 100).round() 
-          : 0;
-
       return {
-        'habits': habits,
-        'completionRate': completionRate,
-        'streak': 7, // TODO: Calcular la racha real
-        'categories': categories.toList(),
+        'habits': habitsDetails,
+        'moodToday': moodToday,
       };
     } catch (e) {
-      if(mounted) {
-        print('Error al obtener el contexto del usuario: $e');
-      }
-      return {
-        'habits': [],
-        'completionRate': 0,
-        'streak': 0,
-        'categories': [],
-      };
+      print('Error al obtener el contexto del usuario: $e');
+      return {};
     }
   }
 }

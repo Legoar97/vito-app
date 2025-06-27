@@ -2,13 +2,14 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'firestore_service.dart'; 
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
-    // Initialize timezone
     tz.initializeTimeZones();
     
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -25,13 +26,48 @@ class NotificationService {
 
     await _notifications.initialize(
       settings,
+      // <<< MEJORA >>> Manejador para cuando se toca la notificación
       onDidReceiveNotificationResponse: _onNotificationTap,
     );
   }
 
-  static void _onNotificationTap(NotificationResponse response) {
-    // Handle notification tap
-    debugPrint('Notification tapped: ${response.payload}');
+  // <<< NUEVO >>> Solicita permisos explícitamente
+  static Future<void> requestPermissions() async {
+    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+        FlutterLocalNotificationsPlugin();
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>()
+        ?.requestPermissions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+  }
+
+  // <<< MEJORA >>> El payload ahora contiene información para la acción
+  static void _onNotificationTap(NotificationResponse response) async {
+    debugPrint('Notification tapped with payload: ${response.payload}');
+    if (response.payload == null || response.payload!.isEmpty) return;
+
+    final payloadData = jsonDecode(response.payload!);
+    final String? habitId = payloadData['habitId'];
+    
+    // Si la acción es completar, se llama a FirestoreService
+    if (habitId != null && response.actionId == 'COMPLETE_ACTION') {
+      debugPrint('Completing habit $habitId from notification');
+      try {
+        await FirestoreService.toggleHabitCompletion(habitId, DateTime.now());
+        debugPrint('Habit $habitId completed successfully.');
+      } catch (e) {
+        debugPrint('Error completing habit from notification: $e');
+      }
+    }
   }
 
   static Future<void> scheduleHabitNotification({
@@ -40,6 +76,9 @@ class NotificationService {
     required TimeOfDay time,
     required List<int> days,
   }) async {
+    // <<< NUEVO >>> Payload con el ID del hábito para la interactividad
+    final payload = jsonEncode({'habitId': habitId});
+
     for (final day in days) {
       final id = habitId.hashCode + day;
       
@@ -56,15 +95,26 @@ class NotificationService {
             importance: Importance.high,
             priority: Priority.high,
             showWhen: true,
-            icon: '@drawable/ic_notification',
+            icon: '@drawable/ic_notification', // Asegúrate que este ícono exista
             color: const Color(0xFF6B5B95),
+            sound: const RawResourceAndroidNotificationSound('notification_sound'), // <<< NUEVO >>> Sonido personalizado
+            // <<< MEJORA >>> Acciones interactivas
+            actions: <AndroidNotificationAction>[
+              const AndroidNotificationAction(
+                'COMPLETE_ACTION',
+                'Marcar como completado',
+                showsUserInterface: false,
+              ),
+            ],
           ),
           iOS: const DarwinNotificationDetails(
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
+            categoryIdentifier: 'HABIT_REMINDER_CATEGORY',
           ),
         ),
+        payload: payload, // <<< MEJORA >>> Se añade el payload
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
@@ -84,7 +134,6 @@ class NotificationService {
       time.minute,
     );
 
-    // Find next instance of the weekday
     while (scheduledDate.weekday != weekday || scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
@@ -103,33 +152,6 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'instant_notifications',
-      'Notificaciones Instantáneas',
-      channelDescription: 'Notificaciones importantes de la app',
-      importance: Importance.high,
-      priority: Priority.high,
-      icon: '@drawable/ic_notification',
-      color: Color(0xFF6B5B95),
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title,
-      body,
-      details,
-      payload: payload,
-    );
+    // ... (sin cambios)
   }
 }

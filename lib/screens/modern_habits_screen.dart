@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:ui';
 import 'dart:math' as math;
 
 import '../models/habit.dart';
@@ -11,7 +12,7 @@ import '../theme/app_colors.dart';
 import '../widgets/add_habit_bottom_sheet.dart';
 import '../widgets/edit_habit_bottom_sheet.dart';
 
-// --- Modelo para la Sugerencia de la IA ---
+// Modelo para la Sugerencia de la IA
 class SuggestedHabit {
   final String name;
   final String category;
@@ -26,11 +27,13 @@ class ModernHabitsScreen extends StatefulWidget {
 }
 
 class _ModernHabitsScreenState extends State<ModernHabitsScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _animationController;
+  late AnimationController _floatingAnimationController;
+  late AnimationController _pulseAnimationController;
   DateTime _selectedDate = DateTime.now();
 
-  // --- Estados para la lógica del Coach AI ---
+  // Estados para la lógica del Coach AI
   bool _isLoadingSuggestions = false;
   List<SuggestedHabit> _suggestedHabits = [];
   bool _showCoachWelcome = false;
@@ -38,34 +41,57 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   Stream<QuerySnapshot>? _allHabitsStream;
   final User? user = FirebaseAuth.instance.currentUser;
 
+  // Estado para el tracker de ánimo
+  String? _currentMood;
+
+  // Controllers para animaciones
+  late ScrollController _scrollController;
+  double _scrollOffset = 0.0;
+
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1200),
       vsync: this,
     )..forward();
     
-    _initializeStream();
-    _checkIfFirstTime();
-  }
+    _floatingAnimationController = AnimationController(
+      duration: const Duration(seconds: 4),
+      vsync: this,
+    )..repeat(reverse: true);
+    
+    _pulseAnimationController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat(reverse: true);
 
-  void _initializeStream() {
-    if (user != null) {
-      setState(() {
-        _allHabitsStream = FirebaseFirestore.instance
-            .collection('users')
-            .doc(user!.uid)
-            .collection('habits')
-            .snapshots();
+    _scrollController = ScrollController()
+      ..addListener(() {
+        setState(() {
+          _scrollOffset = _scrollController.offset;
+        });
       });
+    
+    if (user != null) {
+      _initializeStream();
+      _checkIfFirstTime();
+      _loadTodaysMood();
     }
   }
 
-  // --- LÓGICA DEL COACH ---
+  void _initializeStream() {
+    setState(() {
+      _allHabitsStream = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user!.uid)
+          .collection('habits')
+          .snapshots();
+    });
+  }
+
   Future<void> _checkIfFirstTime() async {
     if (user == null) return;
-    // Agregamos un pequeño retraso para asegurar que la UI de login/splash se haya ido.
     await Future.delayed(const Duration(seconds: 1)); 
     final snapshot = await FirebaseFirestore.instance
         .collection('users').doc(user!.uid).collection('habits').limit(1).get();
@@ -100,12 +126,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     }
   }
 
-  // CAMBIO: Ahora abre el formulario de agregar hábito con los datos precargados
   void _addSuggestedHabitWithForm(SuggestedHabit habit) {
-    // Primero guardamos el hábito para removerlo después
     final habitToRemove = habit;
-    
-    // Convertir la categoría a formato correcto
     final categoryMap = {
       'Salud': 'health',
       'Mente': 'mind',
@@ -114,7 +136,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       'Finanzas': 'finance',
     };
     
-    // Pasamos los datos del hábito sugerido al formulario
+    HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context, 
       isScrollControlled: true, 
@@ -124,16 +146,75 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
         prefilledCategory: categoryMap[habit.category] ?? 'health',
       ),
     ).then((_) {
-      // Cuando se cierre el modal, removemos la sugerencia de la lista
       if (mounted) {
         setState(() => _suggestedHabits.remove(habitToRemove));
       }
     });
   }
 
+  Future<void> _loadTodaysMood() async {
+    if (user == null) return;
+    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final doc = await FirebaseFirestore.instance
+      .collection('users').doc(user!.uid)
+      .collection('mood_tracker').doc(todayStr).get();
+    
+    if (doc.exists && mounted) {
+      setState(() {
+        _currentMood = doc.data()?['mood'];
+      });
+    }
+  }
+
+  Future<void> _saveMood(String mood) async {
+    if (user == null) return;
+    HapticFeedback.lightImpact();
+    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    
+    if (_currentMood == mood) {
+      await FirebaseFirestore.instance
+        .collection('users').doc(user!.uid)
+        .collection('mood_tracker').doc(todayStr).delete();
+      if(mounted) setState(() => _currentMood = null);
+    } else {
+      await FirebaseFirestore.instance
+        .collection('users').doc(user!.uid)
+        .collection('mood_tracker').doc(todayStr)
+        .set({'mood': mood, 'timestamp': FieldValue.serverTimestamp()});
+    
+      if (mounted) {
+        setState(() => _currentMood = mood);
+        _showSuccessSnackBar('¡Ánimo registrado!');
+      }
+    }
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 12),
+            Text(message, style: const TextStyle(fontWeight: FontWeight.w500)),
+          ],
+        ), 
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        margin: const EdgeInsets.all(16),
+      )
+    );
+  }
+
   @override
   void dispose() {
     _animationController.dispose();
+    _floatingAnimationController.dispose();
+    _pulseAnimationController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -144,93 +225,662 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     }
     
     return Scaffold(
-      backgroundColor: AppColors.backgroundLight,
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _allHabitsStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          }
-
-          final allHabits = snapshot.data?.docs ?? [];
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: Stack(
+        children: [
+          // Fondo con gradiente sutil
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.primary.withOpacity(0.02),
+                  AppColors.secondary.withOpacity(0.01),
+                  Colors.white,
+                ],
+              ),
+            ),
+          ),
+          // Formas decorativas animadas
+          ..._buildFloatingShapes(),
           
-          return CustomScrollView(
-            slivers: [
-              _buildSliverAppBar(),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: _buildProgressCard(allHabits),
+          StreamBuilder<QuerySnapshot>(
+            stream: _allHabitsStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.primary,
+                    strokeWidth: 2,
+                  ),
+                );
+              }
+              if (snapshot.hasError) {
+                return Center(child: Text("Error: ${snapshot.error}"));
+              }
+
+              final allHabits = snapshot.data?.docs ?? [];
+              
+              return CustomScrollView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  _buildPremiumSliverAppBar(),
+                  _buildPremiumMoodTracker(),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: _buildPremiumProgressCard(allHabits),
+                    ),
+                  ),
+                  if (_isLoadingSuggestions)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Vito está pensando...',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_suggestedHabits.isNotEmpty)
+                    _buildPremiumSuggestionsSection(),
+                  _buildPremiumHabitsListHeader(),
+                  _buildPremiumHabitsList(allHabits),
+                  _buildPremiumCategoriesHeader(),
+                  _buildPremiumCategoriesSection(),
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 100),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+      floatingActionButton: _buildFloatingActionButton(),
+    );
+  }
+
+  // Botón flotante premium
+  Widget _buildFloatingActionButton() {
+    return AnimatedBuilder(
+      animation: _pulseAnimationController,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: 1 + (_pulseAnimationController.value * 0.05),
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [AppColors.primary, AppColors.primary.withOpacity(0.8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withOpacity(0.3),
+                  blurRadius: 20 + (_pulseAnimationController.value * 10),
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: FloatingActionButton(
+              onPressed: _showAddHabitBottomSheet,
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: const Icon(Icons.add, color: Colors.white, size: 28),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Formas flotantes decorativas
+  List<Widget> _buildFloatingShapes() {
+    return [
+      AnimatedBuilder(
+        animation: _floatingAnimationController,
+        builder: (context, child) {
+          return Positioned(
+            top: 100 + (30 * math.sin(_floatingAnimationController.value * 2 * math.pi)),
+            right: -60,
+            child: Transform.rotate(
+              angle: _floatingAnimationController.value * math.pi,
+              child: Container(
+                width: 180,
+                height: 180,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      AppColors.primary.withOpacity(0.1),
+                      AppColors.primary.withOpacity(0.02),
+                    ],
+                  ),
                 ),
               ),
-
-              if (_isLoadingSuggestions)
-                const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(16.0), child: LinearProgressIndicator())),
-              if (_suggestedHabits.isNotEmpty)
-                _buildSuggestionsSection(),
-
-              _buildHabitsListHeader(),
-              _buildHabitsList(allHabits),
-              _buildCategoriesHeader(),
-              _buildCategoriesSection(),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 100),
-              ),
-            ],
+            ),
           );
         },
+      ),
+      AnimatedBuilder(
+        animation: _floatingAnimationController,
+        builder: (context, child) {
+          return Positioned(
+            bottom: 200 + (20 * math.cos(_floatingAnimationController.value * 2 * math.pi)),
+            left: -80,
+            child: Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.secondary.withOpacity(0.08),
+                    AppColors.secondary.withOpacity(0.01),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    ];
+  }
+
+  // Mood Tracker Premium
+  SliverToBoxAdapter _buildPremiumMoodTracker() {
+    final moods = [
+      {'name': 'Feliz', 'icon': Icons.sentiment_very_satisfied, 'color': const Color(0xFF4ADE80), 'gradient': [const Color(0xFF4ADE80), const Color(0xFF22C55E)]},
+      {'name': 'Normal', 'icon': Icons.sentiment_satisfied, 'color': const Color(0xFF60A5FA), 'gradient': [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]},
+      {'name': 'Triste', 'icon': Icons.sentiment_dissatisfied, 'color': const Color(0xFF94A3B8), 'gradient': [const Color(0xFF94A3B8), const Color(0xFF64748B)]},
+      {'name': 'Estresado', 'icon': Icons.bolt, 'color': const Color(0xFFFBBF24), 'gradient': [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]},
+      {'name': 'Motivado', 'icon': Icons.local_fire_department, 'color': const Color(0xFFF87171), 'gradient': [const Color(0xFFF87171), const Color(0xFFEF4444)]},
+    ];
+
+    return SliverToBoxAdapter(
+      child: FadeTransition(
+        opacity: CurvedAnimation(
+          parent: _animationController,
+          curve: const Interval(0.2, 1.0, curve: Curves.easeOut),
+        ),
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.1),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(
+            parent: _animationController,
+            curve: const Interval(0.2, 1.0, curve: Curves.easeOut),
+          )),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withOpacity(0.9),
+                        Colors.white.withOpacity(0.8),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.3),
+                      width: 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 30,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Icon(
+                              Icons.favorite_rounded,
+                              color: AppColors.primary,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '¿Cómo te sientes?',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF1E293B),
+                                  ),
+                                ),
+                                Text(
+                                  'Registra tu estado de ánimo',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12,
+                                    color: const Color(0xFF64748B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: moods.map((moodData) {
+                          final moodName = moodData['name'] as String;
+                          final moodIcon = moodData['icon'] as IconData;
+                          final gradientColors = moodData['gradient'] as List<Color>;
+                          final isSelected = _currentMood == moodName;
+
+                          return GestureDetector(
+                            onTap: () => _saveMood(moodName),
+                            child: AnimatedScale(
+                              scale: isSelected ? 1.1 : 1.0,
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeOutBack,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                padding: EdgeInsets.all(isSelected ? 14 : 12),
+                                decoration: BoxDecoration(
+                                  gradient: isSelected 
+                                    ? LinearGradient(
+                                        colors: gradientColors,
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : null,
+                                  color: isSelected ? null : Colors.grey.shade100,
+                                  shape: BoxShape.circle,
+                                  boxShadow: isSelected ? [
+                                    BoxShadow(
+                                      color: gradientColors.first.withOpacity(0.4),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ] : [],
+                                ),
+                                child: Icon(
+                                  moodIcon,
+                                  color: isSelected ? Colors.white : Colors.grey.shade600,
+                                  size: 26,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      if (_currentMood != null) ...[
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Text(
+                            _currentMood!,
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildCoachWelcomeView() {
     final categories = [
-      {'name': 'Salud', 'icon': Icons.favorite, 'color': AppColors.categoryHealth},
-      {'name': 'Mente', 'icon': Icons.self_improvement, 'color': AppColors.categoryMind},
-      {'name': 'Trabajo', 'icon': Icons.work, 'color': AppColors.categoryProductivity},
-      {'name': 'Creativo', 'icon': Icons.palette, 'color': AppColors.categoryCreativity},
-      {'name': 'Finanzas', 'icon': Icons.attach_money, 'color': AppColors.categoryFinance},
+      {'name': 'Salud', 'icon': Icons.favorite_rounded, 'color': AppColors.categoryHealth, 'gradient': [const Color(0xFF4ADE80), const Color(0xFF22C55E)]},
+      {'name': 'Mente', 'icon': Icons.self_improvement, 'color': AppColors.categoryMind, 'gradient': [const Color(0xFF818CF8), const Color(0xFF6366F1)]},
+      {'name': 'Trabajo', 'icon': Icons.work_rounded, 'color': AppColors.categoryProductivity, 'gradient': [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]},
+      {'name': 'Creativo', 'icon': Icons.palette_rounded, 'color': AppColors.categoryCreativity, 'gradient': [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]},
+      {'name': 'Finanzas', 'icon': Icons.attach_money_rounded, 'color': AppColors.categoryFinance, 'gradient': [const Color(0xFFA78BFA), const Color(0xFF8B5CF6)]},
     ];
+    
     return Scaffold(
-      backgroundColor: AppColors.backgroundLight,
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.spa, size: 60, color: AppColors.primary),
-              const SizedBox(height: 20),
-              Text(
-                "¡Hola! Soy Vito",
-                style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "Tu coach personal de bienestar. Para empezar, dime, ¿en qué área te gustaría enfocarte hoy?",
-                style: GoogleFonts.inter(fontSize: 16, color: Colors.grey[700]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                alignment: WrapAlignment.center,
-                children: categories.map((category) => ElevatedButton.icon(
-                  icon: Icon(category['icon'] as IconData, color: Colors.white),
-                  label: Text(category['name'] as String),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    backgroundColor: category['color'] as Color,
-                    foregroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AppColors.primary.withOpacity(0.05),
+              Colors.white,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ScaleTransition(
+                  scale: CurvedAnimation(
+                    parent: _animationController,
+                    curve: Curves.elasticOut,
                   ),
-                  onPressed: () => _getAiHabitSuggestions(category['name'] as String),
-                )).toList(),
-              )
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [AppColors.primary, AppColors.primary.withOpacity(0.7)],
+                      ),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.3),
+                          blurRadius: 30,
+                          offset: const Offset(0, 15),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.spa,
+                      size: 50,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  "¡Hola! Soy Vito",
+                  style: GoogleFonts.poppins(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1E293B),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "Tu coach personal de bienestar.\n¿En qué área te gustaría enfocarte hoy?",
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    color: const Color(0xFF64748B),
+                    height: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 48),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  alignment: WrapAlignment.center,
+                  children: categories.map((category) {
+                    final gradientColors = category['gradient'] as List<Color>;
+                    return GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        _getAiHabitSuggestions(category['name'] as String);
+                      },
+                      child: Container(
+                        width: 150,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: gradientColors,
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: gradientColors.first.withOpacity(0.3),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              category['icon'] as IconData,
+                              color: Colors.white,
+                              size: 32,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              category['name'] as String,
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  SliverToBoxAdapter _buildPremiumSuggestionsSection() {
+    return SliverToBoxAdapter(
+      child: FadeTransition(
+        opacity: CurvedAnimation(
+          parent: _animationController,
+          curve: Curves.easeIn,
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          margin: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                AppColors.primary.withOpacity(0.08),
+                AppColors.primary.withOpacity(0.04),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: AppColors.primary.withOpacity(0.2),
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.auto_awesome,
+                          color: AppColors.primary,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        "Vito sugiere:",
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 18,
+                          color: const Color(0xFF1E293B),
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      setState(() => _suggestedHabits = []);
+                    },
+                    icon: Icon(
+                      Icons.close_rounded,
+                      size: 20,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ..._suggestedHabits.asMap().entries.map((entry) {
+                final index = entry.key;
+                final habit = entry.value;
+                return TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: Duration(milliseconds: 400 + (index * 100)),
+                  curve: Curves.easeOutBack,
+                  builder: (context, value, child) {
+                    return Transform.translate(
+                      offset: Offset(0, 20 * (1 - value)),
+                      child: Opacity(
+                        opacity: value,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.lightbulb_outline,
+                            color: AppColors.primary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            habit.name,
+                            style: GoogleFonts.poppins(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFF1E293B),
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => _addSuggestedHabitWithForm(habit),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [AppColors.success, Color(0xFF22C55E)],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.success.withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.add,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
             ],
           ),
         ),
@@ -238,72 +888,108 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     );
   }
 
-  SliverToBoxAdapter _buildSuggestionsSection() {
-    return SliverToBoxAdapter(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.primary.withOpacity(0.2))
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Sugerencias para ti:", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
-                IconButton(onPressed: () => setState(() => _suggestedHabits = []), icon: const Icon(Icons.close, size: 20)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ..._suggestedHabits.map((habit) => ListTile(
-              title: Text(habit.name),
-              leading: const Icon(Icons.lightbulb_outline, color: AppColors.primary),
-              trailing: IconButton(
-                icon: const Icon(Icons.add_circle, color: AppColors.success, size: 30),
-                onPressed: () => _addSuggestedHabitWithForm(habit), // CAMBIO AQUÍ
-              ),
-            )),
-          ],
-        ),
-      ),
-    );
-  }
-
-  SliverAppBar _buildSliverAppBar() {
+  SliverAppBar _buildPremiumSliverAppBar() {
     return SliverAppBar(
-      expandedHeight: 220,
+      expandedHeight: 260,
       floating: false,
       pinned: true,
       backgroundColor: Colors.transparent,
+      elevation: 0,
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [AppColors.gradientStart, AppColors.gradientEnd],
+              colors: [
+                AppColors.primary,
+                AppColors.primary.withOpacity(0.8),
+                AppColors.secondary.withOpacity(0.6),
+              ],
             ),
           ),
           child: Stack(
             children: [
-              Positioned(top: -30, right: -30, child: Container(width: 120, height: 120, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.1)))),
-              Positioned(bottom: -20, left: -20, child: Container(width: 100, height: 100, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.1)))),
+              // Patrón de fondo
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _PatternPainter(),
+                ),
+              ),
+              // Círculos decorativos con parallax
+              Positioned(
+                top: -50 - (_scrollOffset * 0.5),
+                right: -30,
+                child: Container(
+                  width: 150,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(0.1),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: -40 - (_scrollOffset * 0.3),
+                left: -40,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(0.08),
+                  ),
+                ),
+              ),
               SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SizedBox(height: 8),
-                      Text(_getGreeting(), style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white), overflow: TextOverflow.ellipsis, maxLines: 1),
-                      Text(_getMotivationalQuote(), style: GoogleFonts.inter(fontSize: 13, color: Colors.white.withOpacity(0.9)), overflow: TextOverflow.ellipsis, maxLines: 1),
                       const SizedBox(height: 12),
-                      Expanded(child: Center(child: _buildWeekSelectorWithNavigation())),
+                      FadeTransition(
+                        opacity: _animationController,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(-0.3, 0),
+                            end: Offset.zero,
+                          ).animate(CurvedAnimation(
+                            parent: _animationController,
+                            curve: Curves.easeOut,
+                          )),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _getGreeting(),
+                                style: GoogleFonts.poppins(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _getMotivationalQuote(),
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Expanded(
+                        child: Center(
+                          child: _buildPremiumWeekSelector(),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -317,7 +1003,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
-    final user = FirebaseAuth.instance.currentUser;
     final name = user?.displayName?.split(' ').first ?? '';
     if (hour < 12) return 'Buenos días${name.isNotEmpty ? ", $name" : ""}';
     if (hour < 18) return 'Buenas tardes${name.isNotEmpty ? ", $name" : ""}';
@@ -325,56 +1010,142 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   String _getMotivationalQuote() {
-    final quotes = ['Pequeños pasos llevan a grandes cambios', 'Progreso, no perfección', 'Lo estás haciendo increíble', 'Sigue adelante, ¡puedes lograrlo!', 'Cada día es un nuevo comienzo'];
+    final quotes = [
+      'Un paso a la vez, un día a la vez ✨',
+      'Tu constancia es tu superpoder 💪',
+      'Hoy es un gran día para brillar 🌟',
+      'Pequeños cambios, grandes resultados 🚀',
+      'Tu mejor versión te está esperando 🌱'
+    ];
     return quotes[DateTime.now().day % quotes.length];
   }
 
-  Widget _buildWeekSelectorWithNavigation() {
+  Widget _buildPremiumWeekSelector() {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(width: 36, child: IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), onPressed: () => setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 7))), icon: const Icon(Icons.chevron_left, color: Colors.white, size: 24))),
-        Expanded(child: _buildWeekSelector()),
-        SizedBox(width: 36, child: IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), onPressed: () => setState(() => _selectedDate = _selectedDate.add(const Duration(days: 7))), icon: const Icon(Icons.chevron_right, color: Colors.white, size: 24))),
+        IconButton(
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 7)));
+          },
+          icon: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.chevron_left,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+        ),
+        Expanded(
+          child: SizedBox(
+            height: 70,
+            child: _buildWeekDays(),
+          ),
+        ),
+        IconButton(
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            setState(() => _selectedDate = _selectedDate.add(const Duration(days: 7)));
+          },
+          icon: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.chevron_right,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildWeekSelector() {
+  Widget _buildWeekDays() {
     final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
-    return SizedBox(
-      height: 60,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: 7,
-        physics: const BouncingScrollPhysics(),
-        itemBuilder: (context, index) {
-          final date = startOfWeek.add(Duration(days: index));
-          final isSelected = _isSameDay(date, _selectedDate);
-          final isToday = _isSameDay(date, DateTime.now());
-          return GestureDetector(
-            onTap: () => setState(() => _selectedDate = date),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              width: 45,
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: isSelected ? Colors.white : (isToday ? Colors.white.withOpacity(0.5) : Colors.transparent), width: 1.5),
+    return ListView.builder(
+      scrollDirection: Axis.horizontal,
+      itemCount: 7,
+      physics: const BouncingScrollPhysics(),
+      itemBuilder: (context, index) {
+        final date = startOfWeek.add(Duration(days: index));
+        final isSelected = _isSameDay(date, _selectedDate);
+        final isToday = _isSameDay(date, DateTime.now());
+        
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _selectedDate = date);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutBack,
+            width: 52,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: isSelected 
+                ? Colors.white 
+                : Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: isSelected 
+                  ? Colors.white 
+                  : (isToday ? Colors.white.withOpacity(0.5) : Colors.transparent),
+                width: 2,
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(DateFormat.E('es_ES').format(date).substring(0, 2).toUpperCase(), style: TextStyle(color: isSelected ? AppColors.primary : Colors.white, fontWeight: FontWeight.w600, fontSize: 11)),
-                  Text(DateFormat.d().format(date), style: TextStyle(color: isSelected ? AppColors.primary : Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-                  if (isToday) Container(margin: const EdgeInsets.only(top: 1), width: 3, height: 3, decoration: BoxDecoration(color: isSelected ? AppColors.primary : Colors.white, shape: BoxShape.circle)),
-                ],
-              ),
+              boxShadow: isSelected ? [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                ),
+              ] : [],
             ),
-          );
-        },
-      ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  DateFormat.E('es_ES').format(date).substring(0, 2).toUpperCase(),
+                  style: GoogleFonts.poppins(
+                    color: isSelected ? AppColors.primary : Colors.white.withOpacity(0.8),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  DateFormat.d().format(date),
+                  style: GoogleFonts.poppins(
+                    color: isSelected ? AppColors.primary : Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (isToday) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isSelected ? AppColors.primary : Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
   
@@ -412,7 +1183,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     return streak;
   }
 
-  Widget _buildProgressCard(List<QueryDocumentSnapshot> allHabits) {
+  Widget _buildPremiumProgressCard(List<QueryDocumentSnapshot> allHabits) {
     int totalHabitsForSelectedDay = 0;
     int completedOnSelectedDay = 0;
     for (var habit in allHabits) {
@@ -429,85 +1200,308 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     final progress = totalHabitsForSelectedDay > 0 ? completedOnSelectedDay / totalHabitsForSelectedDay : 0.0;
     final streak = _getStreakFromHabitsData(allHabits);
 
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10))],
+    return FadeTransition(
+      opacity: CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.3, 1.0, curve: Curves.easeOut),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.1),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(
+          parent: _animationController,
+          curve: const Interval(0.3, 1.0, curve: Curves.easeOut),
+        )),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                Colors.white.withOpacity(0.95),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withOpacity(0.08),
+                blurRadius: 30,
+                offset: const Offset(0, 15),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Flexible(child: Text('Progreso Diario', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
-              if (streak > 0)
-                Flexible(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: AppColors.success.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.local_fire_department, color: AppColors.success, size: 16),
-                        const SizedBox(width: 4),
-                        Flexible(child: Text('¡$streak día${streak != 1 ? 's' : ''} de racha!', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w600, fontSize: 14), overflow: TextOverflow.ellipsis)),
+                        Text(
+                          'Progreso de hoy',
+                          style: GoogleFonts.poppins(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF1E293B),
+                          ),
+                        ),
+                        Text(
+                          '$completedOnSelectedDay de $totalHabitsForSelectedDay completados',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ),
+                  if (streak > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFF87171), Color(0xFFEF4444)],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFEF4444).withOpacity(0.3),
+                            blurRadius: 15,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.local_fire_department,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$streak días',
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              // Barra de progreso mejorada
+              Stack(
+                children: [
+                  Container(
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeOutCubic,
+                    height: 12,
+                    width: MediaQuery.of(context).size.width * progress * 0.75,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [AppColors.primary, Color(0xFF8B5CF6)],
+                      ),
+                      borderRadius: BorderRadius.circular(6),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.emoji_events,
+                          color: AppColors.primary,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${(progress * 100).toInt()}% completado',
+                        style: GoogleFonts.poppins(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (progress == 1.0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.star,
+                            color: AppColors.success,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '¡Día completo!',
+                            style: GoogleFonts.poppins(
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
-          const SizedBox(height: 20),
-          ClipRRect(borderRadius: BorderRadius.circular(10), child: LinearProgressIndicator(value: progress, minHeight: 10, backgroundColor: Colors.grey[200], valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary))),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(child: Text('$completedOnSelectedDay de $totalHabitsForSelectedDay hábitos completados', style: TextStyle(color: Colors.grey[600]), overflow: TextOverflow.ellipsis)),
-              Text('${(progress * 100).toInt()}%', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  SliverToBoxAdapter _buildCategoriesHeader() {
-    return SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(20, 30, 20, 10), child: Text('Categorías', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600))));
+  SliverToBoxAdapter _buildPremiumCategoriesHeader() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 32, 20, 16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Explora categorías',
+              style: GoogleFonts.poppins(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF1E293B),
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward,
+              color: Colors.grey[400],
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
-  SliverToBoxAdapter _buildCategoriesSection() {
+  SliverToBoxAdapter _buildPremiumCategoriesSection() {
     final categories = [
-      {'name': 'Salud', 'icon': Icons.favorite, 'color': AppColors.categoryHealth},
-      {'name': 'Mente', 'icon': Icons.self_improvement, 'color': AppColors.categoryMind},
-      {'name': 'Trabajo', 'icon': Icons.work, 'color': AppColors.categoryProductivity},
-      {'name': 'Creativo', 'icon': Icons.palette, 'color': AppColors.categoryCreativity},
-      {'name': 'Finanzas', 'icon': Icons.attach_money, 'color': AppColors.categoryFinance},
+      {'name': 'Salud', 'icon': Icons.favorite_rounded, 'color': const Color(0xFF4ADE80), 'gradient': [const Color(0xFF4ADE80), const Color(0xFF22C55E)]},
+      {'name': 'Mente', 'icon': Icons.self_improvement, 'color': const Color(0xFF818CF8), 'gradient': [const Color(0xFF818CF8), const Color(0xFF6366F1)]},
+      {'name': 'Trabajo', 'icon': Icons.work_rounded, 'color': const Color(0xFF60A5FA), 'gradient': [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]},
+      {'name': 'Creativo', 'icon': Icons.palette_rounded, 'color': const Color(0xFFFBBF24), 'gradient': [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]},
+      {'name': 'Finanzas', 'icon': Icons.attach_money_rounded, 'color': const Color(0xFFA78BFA), 'gradient': [const Color(0xFFA78BFA), const Color(0xFF8B5CF6)]},
     ];
+    
     return SliverToBoxAdapter(
       child: SizedBox(
-        height: 120,
+        height: 140,
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 20),
+          physics: const BouncingScrollPhysics(),
           itemCount: categories.length,
           itemBuilder: (context, index) {
             final category = categories[index];
-            return GestureDetector(
-              onTap: () => _getAiHabitSuggestions(category['name'] as String),
-              child: Container(
-                width: 80,
-                margin: const EdgeInsets.only(right: 12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(width: 60, height: 60, decoration: BoxDecoration(color: (category['color'] as Color).withOpacity(0.1), borderRadius: BorderRadius.circular(20)), child: Icon(category['icon'] as IconData, color: category['color'] as Color, size: 28)),
-                    const SizedBox(height: 8),
-                    Flexible(child: Text(category['name'] as String, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.grey[700]))),
-                  ],
+            final gradientColors = category['gradient'] as List<Color>;
+            
+            return TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: Duration(milliseconds: 600 + (index * 100)),
+              curve: Curves.easeOutBack,
+              builder: (context, value, child) {
+                return Transform.translate(
+                  offset: Offset(0, 50 * (1 - value)),
+                  child: Opacity(
+                    opacity: value,
+                    child: child,
+                  ),
+                );
+              },
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  _getAiHabitSuggestions(category['name'] as String);
+                },
+                child: Container(
+                  width: 100,
+                  margin: const EdgeInsets.only(right: 16),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: gradientColors,
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: gradientColors.first.withOpacity(0.3),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          category['icon'] as IconData,
+                          color: Colors.white,
+                          size: 32,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        category['name'] as String,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: const Color(0xFF475569),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -517,22 +1511,44 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     );
   }
 
-  SliverToBoxAdapter _buildHabitsListHeader() {
+  SliverToBoxAdapter _buildPremiumHabitsListHeader() {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+        padding: const EdgeInsets.fromLTRB(20, 28, 20, 16),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Flexible(child: Text(_isSameDay(_selectedDate, DateTime.now()) ? "Hábitos de Hoy" : "Hábitos del ${DateFormat('d MMM', 'es_ES').format(_selectedDate)}", style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
-            TextButton.icon(onPressed: () => _showAddHabitBottomSheet(), icon: const Icon(Icons.add_circle_outline, size: 20), label: const Text('Agregar'), style: TextButton.styleFrom(foregroundColor: AppColors.primary)),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isSameDay(_selectedDate, DateTime.now()) 
+                      ? "Hábitos de hoy" 
+                      : "Hábitos del ${DateFormat('d MMM', 'es_ES').format(_selectedDate)}",
+                    style: GoogleFonts.poppins(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
+                  ),
+                  Text(
+                    'Toca para completar',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      color: const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHabitsList(List<QueryDocumentSnapshot> allHabits) {
+  Widget _buildPremiumHabitsList(List<QueryDocumentSnapshot> allHabits) {
     final habitsForDay = allHabits.where((doc) {
       final data = doc.data() as Map<String, dynamic>?;
       final days = List<int>.from(data?['days'] ?? []);
@@ -540,7 +1556,48 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     }).toList();
 
     if (habitsForDay.isEmpty) {
-      return SliverToBoxAdapter(child: Center(child: Padding(padding: const EdgeInsets.all(40.0), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.event_available, size: 64, color: Colors.grey[300]), const SizedBox(height: 16), Text('No hay hábitos para este día', style: TextStyle(fontSize: 16, color: Colors.grey[600]))]))));
+      return SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(60.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.event_available,
+                    size: 40,
+                    color: Colors.grey[400],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'No hay hábitos para este día',
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Agrega uno nuevo para empezar',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
     }
 
     return SliverList(
@@ -548,14 +1605,28 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
         (context, index) {
           final habit = habitsForDay[index];
           final data = habit.data() as Map<String, dynamic>;
-          return _buildModernHabitCard(habit.id, data);
+          return TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: Duration(milliseconds: 400 + (index * 100)),
+            curve: Curves.easeOutBack,
+            builder: (context, value, child) {
+              return Transform.translate(
+                offset: Offset(0, 30 * (1 - value)),
+                child: Opacity(
+                  opacity: value,
+                  child: child,
+                ),
+              );
+            },
+            child: _buildPremiumHabitCard(habit.id, data),
+          );
         },
         childCount: habitsForDay.length,
       ),
     );
   }
 
-  Widget _buildModernHabitCard(String habitId, Map<String, dynamic> data) {
+  Widget _buildPremiumHabitCard(String habitId, Map<String, dynamic> data) {
     final name = data['name'] ?? 'Hábito sin nombre';
     final category = data['category'] ?? 'health';
     final completions = List<Timestamp>.from(data['completions'] ?? []);
@@ -564,44 +1635,113 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     final color = AppColors.getCategoryColor(category);
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: () => _toggleHabit(habitId, completions),
-          onLongPress: () => _showEditHabitBottomSheet(habitId, data),
-          borderRadius: BorderRadius.circular(20),
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            _showEditHabitBottomSheet(habitId, data);
+          },
+          borderRadius: BorderRadius.circular(24),
           child: Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: isCompleted ? color.withOpacity(0.1) : Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: isCompleted ? color : Colors.grey[200]!, width: 2),
-              boxShadow: [if (!isCompleted) BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))],
+              color: isCompleted 
+                ? color.withOpacity(0.05) 
+                : Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!,
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: isCompleted 
+                    ? color.withOpacity(0.15) 
+                    : Colors.black.withOpacity(0.03),
+                  blurRadius: isCompleted ? 20 : 15,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             child: Row(
               children: [
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
-                  width: 32,
-                  height: 32,
+                  curve: Curves.easeOutBack,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
-                    color: isCompleted ? color : Colors.transparent,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: isCompleted ? color : Colors.grey[300]!, width: 2),
+                    gradient: isCompleted 
+                      ? LinearGradient(
+                          colors: [color, color.withOpacity(0.8)],
+                        )
+                      : null,
+                    color: isCompleted ? null : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isCompleted ? color : Colors.grey[300]!,
+                      width: 2,
+                    ),
                   ),
-                  child: isCompleted ? const Icon(Icons.check, color: Colors.white, size: 20) : null,
+                  child: isCompleted 
+                    ? const Icon(Icons.check, color: Colors.white, size: 22)
+                    : null,
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: isCompleted ? color : Colors.black87, decoration: isCompleted ? TextDecoration.lineThrough : null), overflow: TextOverflow.ellipsis),
-                      if (timeData != null) Text(_formatTime(timeData), style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                      Text(
+                        name,
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: isCompleted ? color : const Color(0xFF1E293B),
+                          decoration: isCompleted ? TextDecoration.lineThrough : null,
+                          decorationColor: color.withOpacity(0.5),
+                          decorationThickness: 2,
+                        ),
+                      ),
+                      if (timeData != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.access_time,
+                              size: 14,
+                              color: Colors.grey[500],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatTime(timeData),
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
+                if (isCompleted)
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.celebration,
+                      color: color,
+                      size: 20,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -611,11 +1751,12 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   void _showAddHabitBottomSheet() {
+    HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context, 
       isScrollControlled: true, 
       backgroundColor: Colors.transparent, 
-      builder: (context) => const AddHabitBottomSheet(), // Sin parámetros para crear nuevo
+      builder: (context) => const AddHabitBottomSheet(),
     );
   }
 
@@ -634,25 +1775,69 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       currentStreak: data['currentStreak'] as int? ?? 0,
       longestStreak: data['longestStreak'] as int? ?? 0,
     );
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => EditHabitBottomSheet(habit: habit));
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => EditHabitBottomSheet(habit: habit),
+    );
   }
 
   Future<void> _toggleHabit(String habitId, List<Timestamp> completions) async {
     if (!_isSameDay(_selectedDate, DateTime.now())) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Solo puedes modificar los hábitos del día de hoy.'), backgroundColor: AppColors.warning));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.info_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Solo puedes modificar los hábitos de hoy',
+                  style: TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.warning,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
       return;
     }
-    final user = FirebaseAuth.instance.currentUser;
+    
     if (user == null) return;
-    final selectedTimestamp = Timestamp.fromDate(DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day));
+    HapticFeedback.lightImpact();
+    
+    final selectedTimestamp = Timestamp.fromDate(
+      DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)
+    );
     final isCompleted = _wasCompletedOnDate(_selectedDate, completions);
-    final habitRef = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('habits').doc(habitId);
+    final habitRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user!.uid)
+        .collection('habits')
+        .doc(habitId);
+        
     if (isCompleted) {
-      final completionToRemove = completions.firstWhere((ts) => _isSameDay(ts.toDate(), _selectedDate));
-      await habitRef.update({'completions': FieldValue.arrayRemove([completionToRemove])});
+      final completionToRemove = completions.firstWhere(
+        (ts) => _isSameDay(ts.toDate(), _selectedDate)
+      );
+      await habitRef.update({
+        'completions': FieldValue.arrayRemove([completionToRemove])
+      });
     } else {
-      await habitRef.update({'completions': FieldValue.arrayUnion([selectedTimestamp])});
-      if (mounted) HapticFeedback.lightImpact();
+      await habitRef.update({
+        'completions': FieldValue.arrayUnion([selectedTimestamp])
+      });
+      if (mounted) {
+        HapticFeedback.heavyImpact();
+        _showSuccessSnackBar('¡Hábito completado! 🎉');
+      }
     }
   }
 
@@ -667,9 +1852,32 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   String _formatTime(Map<String, dynamic> timeData) {
     final hour = timeData['hour'] as int;
     final minute = timeData['minute'] as int;
-    final time = TimeOfDay(hour: hour, minute: minute);
     final now = DateTime.now();
     final dateTime = DateTime(now.year, now.month, now.day, hour, minute);
     return DateFormat.jm('es_ES').format(dateTime);
   }
+}
+
+// Custom painter para el patrón del header
+class _PatternPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.05)
+      ..style = PaintingStyle.fill;
+
+    // Dibujar círculos decorativos
+    for (int i = 0; i < 5; i++) {
+      for (int j = 0; j < 3; j++) {
+        canvas.drawCircle(
+          Offset(i * 80.0 + 40, j * 80.0 + 40),
+          20,
+          paint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -70,6 +70,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       );
 
       if (userCredential.user != null) {
+        // <<< MEJORA >>> Se añade la bandera para el onboarding
         await FirestoreService.createOrUpdateUserProfile(
           userId: userCredential.user!.uid,
           displayName: _nameController.text.trim(),
@@ -77,10 +78,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
             'gender': _selectedGender,
             'birthDate': _selectedBirthDate,
             'termsAcceptedOn': Timestamp.now(),
+            'onboardingCompleted': false, // Se marca que el usuario es nuevo
           },
         );
       }
       
+      // La navegación a /onboarding ahora será manejada por la lógica global
+      // en main.dart, que detectará que el usuario es nuevo.
+      // No es necesario un context.go() aquí, pero lo dejamos por si acaso.
       if (mounted) context.go('/onboarding');
 
     } on FirebaseAuthException catch (e) {
@@ -123,9 +128,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // --- Textos Legales con un tono más personal ---
-    const String termsAndConditionsText = '''
-Última actualización: 26 de junio de 2025
+    const String termsAndConditionsText = '''Última actualización: 26 de junio de 2025
 
 ¡Hola! Soy Iván, el creador de Vito. Te agradezco por usar mi aplicación. Para que todo esté claro entre nosotros, aquí te explico las reglas del juego.
 
@@ -146,11 +149,8 @@ Pongo todo mi esfuerzo para que Vito funcione de maravilla, pero como soy una so
 5. Cambios
 Puede que actualice estos términos en el futuro si la app crece o cambia. Si eso pasa, te lo haré saber.
 
-¡Gracias por leer! Si tienes cualquier duda, no dudes en escribirme.
-''';
-
-    const String privacyPolicyText = '''
-Última actualización: 26 de junio de 2025
+¡Gracias por leer! Si tienes cualquier duda, no dudes en escribirme.''';
+    const String privacyPolicyText = '''Última actualización: 26 de junio de 2025
 
 ¡Hola! Soy Iván. Tu privacidad es súper importante para mí. En este documento te explico de forma clara y sencilla qué datos recojo y para qué los uso.
 
@@ -174,7 +174,8 @@ Uso los servicios de Firebase (de Google), que son líderes en seguridad, para a
 Tú tienes el control. Desde la pantalla de tu perfil, puedes ver y eliminar tu cuenta cuando quieras. Si eliminas tu cuenta, todos tus datos se borrarán permanentemente.
 
 Si tienes alguna pregunta sobre cómo manejo tu privacidad, ¡escríbeme! La transparencia es lo primero.
-''';
+
+¡Gracias por usar Vito!''';
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -266,11 +267,7 @@ Si tienes alguna pregunta sobre cómo manejo tu privacidad, ¡escríbeme! La tra
                     children: [
                       Checkbox(
                         value: _termsAccepted,
-                        onChanged: (value) {
-                          setState(() {
-                            _termsAccepted = value!;
-                          });
-                        },
+                        onChanged: (value) => setState(() => _termsAccepted = value!),
                       ),
                       Expanded(
                         child: RichText(
@@ -280,28 +277,15 @@ Si tienes alguna pregunta sobre cómo manejo tu privacidad, ¡escríbeme! La tra
                               const TextSpan(text: 'He leído y acepto los '),
                               TextSpan(
                                 text: 'Términos de Uso',
-                                style: const TextStyle(
-                                  color: AppColors.primary,
-                                  decoration: TextDecoration.underline,
-                                ),
-                                recognizer: TapGestureRecognizer()
-                                ..onTap = () {
-                                  _showLegalDialog('Términos de Uso', termsAndConditionsText);
-                                },
+                                style: const TextStyle(color: AppColors.primary, decoration: TextDecoration.underline),
+                                recognizer: TapGestureRecognizer()..onTap = () => _showLegalDialog('Términos de Uso', termsAndConditionsText),
                               ),
                               const TextSpan(text: ' y la '),
                               TextSpan(
                                 text: 'Política de Privacidad',
-                                style: const TextStyle(
-                                  color: AppColors.primary,
-                                  decoration: TextDecoration.underline,
-                                ),
-                                recognizer: TapGestureRecognizer()
-                                ..onTap = () {
-                                  _showLegalDialog('Política de Privacidad', privacyPolicyText);
-                                },
+                                style: const TextStyle(color: AppColors.primary, decoration: TextDecoration.underline),
+                                recognizer: TapGestureRecognizer()..onTap = () => _showLegalDialog('Política de Privacidad', privacyPolicyText),
                               ),
-                              const TextSpan(text: '.'),
                             ],
                           ),
                         ),
