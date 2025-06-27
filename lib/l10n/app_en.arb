@@ -1,0 +1,13 @@
+{
+    "@@locale": "en",
+    "weeklyHabits": "My Weekly Habits",
+    "addHabitTooltip": "Add Habit",
+    "noHabitsForThisDay": "You have no habits for this day.",
+    "dayLetterL": "M",
+    "dayLetterM": "T",
+    "dayLetterW": "W",
+    "dayLetterJ": "T",
+    "dayLetterV": "F",
+    "dayLetterS": "S",
+    "dayLetterD": "S"
+}

@@ -1,0 +1,92 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ / Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code (descomenta si no quieres incluir tu configuración local)
+/.vscode/
+
+# Flutter/Dart/Pub
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Obfuscation / symbolication
+app.*.symbols
+app.*.map.json
+
+# Android
+/android/local.properties
+/android/.gradle/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+**/android/**/build/
+**/android/**/captures/
+
+# iOS
+/ios/Pods/
+/ios/.symlinks/
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Flutter.podspec
+/ios/ServiceDefinitions.json
+**/ios/**/build/
+
+# macOS
+macos/Flutter/ephemeral/
+/macos/Pods/
+/macos/Runner.xcworkspace/
+/macos/Runner.xcodeproj/project.xcworkspace/
+
+# Windows
+/windows/Flutter/ephemeral/
+/windows/.gradle/
+/windows/runner/Debug/
+/windows/runner/Release/
+
+# Linux
+/linux/Flutter/ephemeral/
+/linux/.gradle/
+/linux/flutter/ephemeral/
+/linux/runner/Debug/
+/linux/runner/Release/
+
+# Web
+/web/.dart_tool/
+/web/outputs/
+/web/coverage/
+
+# Test outputs
+coverage/
+*.lcov
+
+# Credential files (no subir al repo)
+assets/service-account-key.json
+service-account-key.json
+
+# Git LFS
+*.apk filter=lfs diff=lfs merge=lfs -text
+*.so  filter=lfs diff=lfs merge=lfs -text
+
+# End of file
