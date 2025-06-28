@@ -11,6 +11,7 @@ import 'dart:math' as math;
 import '../models/habit.dart';
 import '../theme/app_colors.dart';
 import '../screens/vito_chat_habit_screen.dart';
+import '../services/notification_service.dart';
 
 // --- NUEVO MODELO DE MOOD ---
 class Mood {
@@ -40,6 +41,13 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   late AnimationController _floatingAnimationController;
   late AnimationController _pulseAnimationController;
   DateTime _selectedDate = DateTime.now();
+    // --- NUEVAS VARIABLES PARA EL TUTORIAL ---
+  bool _showTutorial = false;
+  int _tutorialStep = 0;
+  final GlobalKey _moodTrackerKey = GlobalKey();
+  final GlobalKey _progressCardKey = GlobalKey();
+  final GlobalKey _fabKey = GlobalKey(); // FAB = Floating Action Button
+  // --- FIN DE VARIABLES PARA EL TUTORIAL ---
 
   bool _isLoadingSuggestions = false;
   List<SuggestedHabit> _suggestedHabits = [];
@@ -91,11 +99,28 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           _scrollOffset = _scrollController.offset;
         });
       });
-    
+    NotificationService.scheduleDailyMoodReminder(); 
+
     if (user != null) {
       _initializeStream();
-      _checkIfFirstTime();
+      _checkOnboardingStatus(); 
       _loadTodaysMood();
+    }
+  }
+
+  Future<void> _checkOnboardingStatus() async {
+    if (user == null) return;
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
+      // Si el onboarding NO está completado, iniciamos el tutorial
+      if (mounted && (userDoc.data()?['onboardingCompleted'] == null || userDoc.data()?['onboardingCompleted'] == false)) {
+        setState(() {
+          _showTutorial = true;
+          _tutorialStep = 0; // Empezamos desde el primer paso
+        });
+      }
+    } catch (e) {
+      print("Error al verificar estado de onboarding: $e");
     }
   }
 
@@ -200,7 +225,9 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     await FirebaseFirestore.instance
       .collection('users').doc(user!.uid).collection('moods')
       .add({'mood': mood, 'timestamp': Timestamp.now()});
-    
+
+    await NotificationService.cancelDailyMoodReminder();
+
     _loadTodaysMood(); // Recargar los moods para actualizar la UI
     _showSuccessSnackBar('¡Ánimo registrado!');
   }
@@ -237,14 +264,13 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
 
   @override
   Widget build(BuildContext context) {
-    if (_showCoachWelcome) {
-      return _buildCoachWelcomeView();
-    }
-    
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
+      // --- CAMBIO PRINCIPAL: Envolvemos todo en un Stack ---
       body: Stack(
         children: [
+          // --- El contenido original de la pantalla va aquí ---
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -259,7 +285,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
             ),
           ),
           ..._buildFloatingShapes(),
-          
           StreamBuilder<QuerySnapshot>(
             stream: _allHabitsStream,
             builder: (context, snapshot) {
@@ -298,11 +323,200 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           ),
           // --- NUEVO CHIP DE IDEAS FLOTANTE ---
           _buildIdeaChip(),
+        // --- NUEVO: El overlay del tutorial se dibuja encima de todo ---
+          if (_showTutorial) _buildTutorialOverlay(),
         ],
       ),
-      floatingActionButton: _buildFloatingActionButton(),
+      floatingActionButton: Container(
+        key: _fabKey,
+        child: _buildFloatingActionButton(),
+      ),
+    );
+  }     
+
+// Métodos para tutorial
+// Obtiene la posición y tamaño de un widget usando su GlobalKey
+  Rect? _getWidgetRect(GlobalKey key) {
+    final RenderBox? renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox != null) {
+      final size = renderBox.size;
+      final position = renderBox.localToGlobal(Offset.zero);
+      return Rect.fromLTWH(position.dx, position.dy, size.width, size.height);
+    }
+    return null;
+  }
+
+  // Construye el overlay completo del tutorial
+  Widget _buildTutorialOverlay() {
+    GlobalKey? currentKey;
+    String title = '';
+    String text = '';
+    Alignment dialogAlignment = Alignment.center;
+
+    // Determina qué mostrar según el paso actual
+    switch (_tutorialStep) {
+      case 0:
+        currentKey = _moodTrackerKey;
+        title = '¡Bienvenido a Vito!';
+        text = 'Empecemos por aquí. Registra cómo te sientes cada día para llevar un seguimiento de tu bienestar emocional.';
+        dialogAlignment = Alignment.bottomCenter;
+        break;
+      case 1:
+        currentKey = _progressCardKey;
+        title = 'Tu Centro de Mando';
+        text = 'Esta tarjeta te mostrará tu progreso diario y tu racha de constancia. ¡Vamos a llenarla!';
+        dialogAlignment = Alignment.bottomCenter;
+        break;
+      case 2:
+        currentKey = _fabKey;
+        title = 'Crea tu Primer Hábito';
+        text = 'Toca este botón para añadir un nuevo hábito. Te ayudaré a configurarlo paso a paso.';
+        dialogAlignment = Alignment.topCenter;
+        break;
+    }
+
+    // --- LÍNEA CORREGIDA ---
+    final highlightRect = currentKey != null ? _getWidgetRect(currentKey) : null;
+
+    return Material(
+      color: Colors.transparent,
+      child: Stack(
+        children: [
+          // Fondo oscuro y difuminado
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () { // Permite avanzar tocando fuera del diálogo
+                if (_tutorialStep < 2) {
+                    setState(() => _tutorialStep++);
+                }
+              },
+              child: ClipPath(
+                clipper: InvertedClipper(
+                  // Le damos un poco de espacio al recorte
+                  rect: highlightRect?.inflate(15.0) ?? Rect.zero,
+                  shape: BoxShape.rectangle,
+                ),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                  child: Container(
+                    color: Colors.black.withOpacity(0.6),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          
+          // Diálogo de texto
+          if (highlightRect != null)
+            Positioned(
+              top: dialogAlignment == Alignment.bottomCenter 
+                    ? highlightRect.bottom + 20 
+                    : null,
+              bottom: dialogAlignment == Alignment.topCenter 
+                    ? MediaQuery.of(context).size.height - highlightRect.top + 20
+                    : null,
+              left: 20,
+              right: 20,
+              child: _buildTutorialDialog(
+                title: title,
+                text: text,
+                isLastStep: _tutorialStep == 2,
+                onNext: () {
+                  if (_tutorialStep == 2) {
+                    // Si es el último paso, abrimos el chat y terminamos el tutorial
+                    _completeTutorial();
+                    _showAddHabitBottomSheet();
+                  } else {
+                    setState(() => _tutorialStep++);
+                  }
+                },
+              ),
+            ),
+        ],
+      ),
     );
   }
+  
+  // Diálogo que muestra el texto del tutorial
+  Widget _buildTutorialDialog({
+    required String title,
+    required String text,
+    required bool isLastStep,
+    required VoidCallback onNext,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            style: GoogleFonts.poppins(
+              fontSize: 15,
+              color: const Color(0xFF475569),
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: onNext,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: Text(
+                isLastStep ? '¡Entendido!' : 'Siguiente',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Marca el tutorial como completado en Firestore
+  Future<void> _completeTutorial() async {
+    if (user == null) return;
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
+        'onboardingCompleted': true,
+      });
+      setState(() => _showTutorial = false);
+    } catch (e) {
+      print("Error al completar el tutorial: $e");
+    }
+  }     
   
   // --- NUEVO WIDGET PARA EL CHIP DE IDEAS ---
   Widget _buildIdeaChip() {
@@ -467,6 +681,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
         child: SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0))),
           child: Container(
+            key: _moodTrackerKey,
             margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(28),
@@ -1263,6 +1478,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           curve: const Interval(0.3, 1.0, curve: Curves.easeOut),
         )),
         child: Container(
+          key: _progressCardKey,
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -1678,6 +1894,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   // --- TARJETA PARA HÁBITOS CUANTIFICABLES (CONTADOR) ---
+// En tu clase _ModernHabitsScreenState
+
   Widget _buildQuantifiableHabitCard(String habitId, Map<String, dynamic> data) {
     final name = data['name'] ?? 'Sin nombre';
     final target = data['targetValue'] as int? ?? 1;
@@ -1708,64 +1926,78 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       HapticFeedback.lightImpact();
     }
 
+    // --- ENVOLTORIO PARA onLongPress ---
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isCompleted ? color.withOpacity(0.05) : Colors.white,
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: isCompleted ? color.withOpacity(0.15) : Colors.black.withOpacity(0.03),
-            blurRadius: 15, offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  name,
-                  style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+        child: InkWell(
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            _showEditHabitBottomSheet(habitId, data);
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isCompleted ? color.withOpacity(0.05) : Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!, width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: isCompleted ? color.withOpacity(0.15) : Colors.black.withOpacity(0.03),
+                  blurRadius: 15, offset: const Offset(0, 8),
                 ),
-              ),
-              Text(
-                '$currentProgress / $target ${unit.isNotEmpty ? unit : ''}',
-                style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: color),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: progressPercent,
-              minHeight: 10,
-              backgroundColor: color.withOpacity(0.15),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                      ),
+                    ),
+                    Text(
+                      '$currentProgress / $target ${unit.isNotEmpty ? unit : ''}',
+                      style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: progressPercent,
+                    minHeight: 10,
+                    backgroundColor: color.withOpacity(0.15),
+                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      onPressed: () => updateProgress(-1),
+                      icon: Icon(Icons.remove_circle_outline, color: Colors.grey[400]),
+                    ),
+                    IconButton(
+                      iconSize: 36,
+                      onPressed: () => updateProgress(1),
+                      icon: Icon(Icons.add_circle, color: isCompleted ? Colors.grey[400] : color),
+                    ),
+                  ],
+                )
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              IconButton(
-                onPressed: () => updateProgress(-1),
-                icon: Icon(Icons.remove_circle_outline, color: Colors.grey[400]),
-              ),
-              IconButton(
-                iconSize: 36,
-                onPressed: () => updateProgress(1),
-                icon: Icon(Icons.add_circle, color: isCompleted ? Colors.grey[400] : color),
-              ),
-            ],
-          )
-        ],
+        ),
       ),
     );
   }
@@ -1781,62 +2013,72 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
     final isCompleted = completionsMap[todayKey]?['completed'] as bool? ?? false;
     
-    // Lógica para saber si este es el hábito con el timer activo
     final bool isTimerActive = _activeTimerHabitId == habitId;
     
-    // Formatear el tiempo restante
     final minutesStr = (_timerSecondsRemaining ~/ 60).toString().padLeft(2, '0');
     final secondsStr = (_timerSecondsRemaining % 60).toString().padLeft(2, '0');
     final timerText = '$minutesStr:$secondsStr';
 
+    // --- ENVOLTORIO PARA onLongPress ---
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isTimerActive ? color.withOpacity(0.1) : (isCompleted ? color.withOpacity(0.05) : Colors.white),
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: isTimerActive ? color.withOpacity(0.5) : (isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!), width: 1.5),
-        boxShadow: [BoxShadow(color: (isTimerActive || isCompleted) ? color.withOpacity(0.15) : Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 8))],
-      ),
-      child: Row(
-        children: [
-          Icon(isCompleted ? Icons.check_circle_rounded : Icons.timer_outlined, color: color, size: 28),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        child: InkWell(
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            _showEditHabitBottomSheet(habitId, data);
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isTimerActive ? color.withOpacity(0.1) : (isCompleted ? color.withOpacity(0.05) : Colors.white),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: isTimerActive ? color.withOpacity(0.5) : (isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!), width: 1.5),
+              boxShadow: [BoxShadow(color: (isTimerActive || isCompleted) ? color.withOpacity(0.15) : Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 8))],
+            ),
+            child: Row(
               children: [
-                Text(name, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600)),
-                // Muestra la duración o el tiempo restante
-                if (isTimerActive)
-                  Text(timerText, style: GoogleFonts.poppins(color: color, fontWeight: FontWeight.bold, fontSize: 18))
-                else
-                  Text('$durationMinutes minutos', style: GoogleFonts.poppins(color: Colors.grey[600])),
+                Icon(isCompleted ? Icons.check_circle_rounded : Icons.timer_outlined, color: color, size: 28),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600)),
+                      if (isTimerActive)
+                        Text(timerText, style: GoogleFonts.poppins(color: color, fontWeight: FontWeight.bold, fontSize: 18))
+                      else
+                        Text('$durationMinutes minutos', style: GoogleFonts.poppins(color: Colors.grey[600])),
+                    ],
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: color,
+                    shape: const CircleBorder(),
+                    padding: const EdgeInsets.all(16),
+                    elevation: 5, shadowColor: color.withOpacity(0.5)
+                  ),
+                  onPressed: isCompleted ? null : () {
+                    if (isTimerActive) {
+                      _stopTimer();
+                    } else {
+                      HapticFeedback.heavyImpact();
+                      _startTimer(habitId, durationMinutes);
+                    }
+                  },
+                  child: Icon(
+                    isCompleted ? Icons.celebration_rounded : (isTimerActive ? Icons.stop_rounded : Icons.play_arrow_rounded),
+                    color: Colors.white
+                  ),
+                )
               ],
             ),
           ),
-          // Botón dinámico de Play/Pausa/Celebración
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: color,
-              shape: const CircleBorder(),
-              padding: const EdgeInsets.all(16),
-              elevation: 5, shadowColor: color.withOpacity(0.5)
-            ),
-            onPressed: isCompleted ? null : () {
-              if (isTimerActive) {
-                _stopTimer(); // Si el timer está activo, el botón lo detiene
-              } else {
-                HapticFeedback.heavyImpact();
-                _startTimer(habitId, durationMinutes); // Si no, lo inicia
-              }
-            },
-            child: Icon(
-              isCompleted ? Icons.celebration_rounded : (isTimerActive ? Icons.stop_rounded : Icons.play_arrow_rounded),
-              color: Colors.white
-            ),
-          )
-        ],
+        ),
       ),
     );
   }
@@ -1957,3 +2199,32 @@ class _PatternPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+// --- CUSTOM CLIPPER PARA EL EFECTO SPOTLIGHT ---
+class InvertedClipper extends CustomClipper<Path> {
+  final Rect rect;
+  final BoxShape shape;
+
+  InvertedClipper({required this.rect, required this.shape});
+
+  @override
+  Path getClip(Size size) {
+    // Path del fondo completo
+    final backgroundPath = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    // Path del "agujero"
+    Path cutoutPath;
+    if (shape == BoxShape.circle) {
+      cutoutPath = Path()..addOval(rect);
+    } else {
+      cutoutPath = Path()..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(24)));
+    }
+
+    // Combina los dos paths para crear el recorte
+    return Path.combine(PathOperation.difference, backgroundPath, cutoutPath);
+  }
+
+  @override
+  bool shouldReclip(InvertedClipper oldClipper) {
+    return rect != oldClipper.rect || shape != oldClipper.shape;
+  }
+}

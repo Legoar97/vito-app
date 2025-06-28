@@ -140,7 +140,7 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
           });
         } else {
           _addVitoMessage(
-            '¡Hola $_userName! 👋\n\nSoy Vito, tu asistente personal de bienestar. ¿Qué hábito te gustaría crear hoy?\n\nPuedes decirme algo como:\n• "Meditar 10 minutos todas las mañanas"\n• "Acostarme a las 10 pm de lunes a viernes"\n• "Salir a correr 30 min lunes, miércoles y viernes"'
+            '¡Hola $_userName! 👋\n\nSoy Vito, tu asistente de bienestar. ¿Qué hábito te gustaría crear?\n\nPuedes decirme algo como:\n* "Meditar 10 minutos todas las mañanas"\n* "Acostarme a las 10 pm de lunes a viernes"\n* "Salir a correr 30 min lunes, miércoles y viernes"'
           );
           
           // Si hay un mensaje inicial (de una sugerencia), procesarlo
@@ -262,25 +262,30 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
   }
   
   void _confirmHabit() {
-    String summary = '¡Perfecto! He preparado tu hábito:\n\n';
-    summary += '✅ **${_habitBuilder.name}**\n';
+    // Construimos el resumen usando la sintaxis CORRECTA de Markdown
+    String summary = '¡Perfecto! He preparado tu hábito. Así es como se ve:\n\n';
+
+    // Usamos '*' seguido de espacios para crear una lista con viñetas.
+    summary += '*   **Hábito:** ${_habitBuilder.name}\n';
     
-    final dayNames = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    final dayNames = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'];
     if (_habitBuilder.days != null && _habitBuilder.days!.isNotEmpty) {
       final selectedDayNames = _habitBuilder.days!.map((d) => dayNames[d - 1]).join(', ');
-      summary += '📅 Días: $selectedDayNames\n';
+      summary += '*   **Días:** 📅 $selectedDayNames\n'; // <-- Añadido '*'
     }
     
     if (_habitBuilder.time != null) {
-      summary += '⏰ Hora: ${_habitBuilder.time!.format(context)}\n';
+      final formattedTime = _habitBuilder.time!.format(context);
+      summary += '*   **Hora:** ⏰ $formattedTime\n'; // <-- Añadido '*'
     }
     
-    // Nueva lógica para mostrar el objetivo
     if (_habitBuilder.type == 'timed' && _habitBuilder.targetValue != null) {
-      summary += '⏱️ Duración: ${_habitBuilder.targetValue} minutos\n';
+      summary += '*   **Duración:** ⏱️ ${_habitBuilder.targetValue} minutos\n'; // <-- Añadido '*'
     }
+    
     if (_habitBuilder.type == 'quantifiable' && _habitBuilder.targetValue != null) {
-      summary += '🎯 Objetivo: ${_habitBuilder.targetValue} ${_habitBuilder.unit ?? ''}\n';
+      final unit = _habitBuilder.unit ?? '';
+      summary += '*   **Objetivo:** 🎯 ${_habitBuilder.targetValue} $unit\n'; // <-- Añadido '*'
     }
     
     summary += '\n¿Te parece bien?';
@@ -811,6 +816,10 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
                   ),
                   strong: GoogleFonts.poppins(
                     fontWeight: FontWeight.w600,
+                    color: isVito ? const Color(0xFF1E293B) : Colors.white,
+                  ),
+                  listBullet: GoogleFonts.poppins(
+                    fontSize: 15,
                     color: isVito ? const Color(0xFF1E293B) : Colors.white,
                   ),
                 ),

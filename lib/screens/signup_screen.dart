@@ -749,101 +749,129 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
     VoidCallback? onToggleObscure,
   }) {
     final bool isFocused = focusNode.hasFocus;
-    
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeInOut,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isFocused 
-              ? Colors.white.withOpacity(0.4)
-              : Colors.white.withOpacity(0.2),
-          width: 1,
-        ),
-        boxShadow: isFocused ? [
-          BoxShadow(
-            color: Colors.white.withOpacity(0.05),
-            blurRadius: 25,
-            spreadRadius: 5,
-          ),
-        ] : [],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-          child: TextFormField(
-            controller: controller,
-            focusNode: focusNode,
-            keyboardType: keyboardType,
-            obscureText: obscureText,
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w300,
-            ),
-            decoration: InputDecoration(
-              labelText: label,
-              labelStyle: GoogleFonts.poppins(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 14,
-                fontWeight: FontWeight.w300,
-              ),
-              prefixIcon: Icon(
-                icon,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              suffixIcon: isPassword
-                  ? IconButton(
-                      onPressed: () {
-                        HapticFeedback.selectionClick();
-                        onToggleObscure?.call();
-                      },
-                      icon: Icon(
-                        obscureText 
-                            ? Icons.visibility_off_rounded
-                            : Icons.visibility_rounded,
-                        color: Colors.white.withOpacity(0.7),
-                        size: 20,
-                      ),
-                    )
-                  : null,
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.08),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide.none,
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide(
-                  color: Colors.red.shade300,
-                  width: 1,
-                ),
-              ),
-              errorStyle: GoogleFonts.poppins(
-                color: Colors.red.shade200,
+    final bool hasText = controller.text.isNotEmpty;
+
+    // CAMBIO CLAVE 1: Envolvemos todo en una Columna para poner el label arriba
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // CAMBIO CLAVE 2: Este es nuestro nuevo label externo, animado
+        Padding(
+          padding: const EdgeInsets.only(left: 20.0, bottom: 8.0),
+          child: AnimatedOpacity(
+            opacity: isFocused || hasText ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeIn,
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                color: Colors.white.withOpacity(0.8),
                 fontSize: 12,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 18,
+                fontWeight: FontWeight.w400,
               ),
             ),
-            validator: validator,
           ),
         ),
-      ),
+        
+        // El campo de texto, ahora sin `labelText` y con `hintText`
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isFocused 
+                  ? Colors.white.withOpacity(0.4)
+                  : Colors.white.withOpacity(0.2),
+              width: 1,
+            ),
+            boxShadow: isFocused ? [
+              BoxShadow(
+                color: Colors.white.withOpacity(0.05),
+                blurRadius: 25,
+                spreadRadius: 5,
+              ),
+            ] : [],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+              child: TextFormField(
+                controller: controller,
+                focusNode: focusNode,
+                keyboardType: keyboardType,
+                obscureText: obscureText,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w300,
+                ),
+                decoration: InputDecoration(
+                  // CAMBIO CLAVE 3: Usamos hintText que desaparece cuando el label de arriba aparece
+                  hintText: isFocused || hasText ? '' : label,
+                  hintStyle: GoogleFonts.poppins(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 16, // Mismo tamaño que el texto
+                    fontWeight: FontWeight.w300,
+                  ),
+                  // Se eliminó labelText y labelStyle de aquí
+                  prefixIcon: Icon(
+                    icon,
+                    color: Colors.white.withOpacity(0.7),
+                    size: 20,
+                  ),
+                  suffixIcon: isPassword
+                      ? IconButton(
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            onToggleObscure?.call();
+                          },
+                          icon: Icon(
+                            obscureText 
+                                ? Icons.visibility_off_rounded
+                                : Icons.visibility_rounded,
+                            color: Colors.white.withOpacity(0.7),
+                            size: 20,
+                          ),
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.08),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(
+                      color: Colors.red.shade300,
+                      width: 1,
+                    ),
+                  ),
+                  errorStyle: GoogleFonts.poppins(
+                    color: Colors.red.shade200,
+                    fontSize: 12,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 18,
+                  ),
+                ),
+                validator: validator,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
   

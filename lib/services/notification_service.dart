@@ -4,12 +4,16 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'firestore_service.dart'; 
 
 class NotificationService {
-  static final FlutterLocalNotificationsPlugin _notifications =
-      FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+  
+  // ID único y fijo para la notificación de recordatorio de ánimo
+  static const int _moodReminderId = 99;
 
   static Future<void> initialize() async {
     tz.initializeTimeZones();
@@ -21,10 +25,7 @@ class NotificationService {
       requestSoundPermission: true,
     );
     
-    const settings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
+    const settings = InitializationSettings(android: androidSettings, iOS: iosSettings);
 
     await _notifications.initialize(
       settings,
@@ -33,24 +34,14 @@ class NotificationService {
   }
 
   static Future<void> requestPermissions() async {
-    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-        FlutterLocalNotificationsPlugin();
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
-
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
+    // Tu código para solicitar permisos es perfecto, se mantiene igual.
+    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+    await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
+    await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
   static void _onNotificationTap(NotificationResponse response) async {
+    // Tu código para manejar el tap es perfecto, se mantiene igual.
     debugPrint('Notification tapped with payload: ${response.payload}');
     if (response.payload == null || response.payload!.isEmpty) return;
 
@@ -74,11 +65,10 @@ class NotificationService {
     required TimeOfDay time,
     required List<int> days,
   }) async {
+    // Tu código para programar notificaciones de hábitos es excelente, se mantiene igual.
     final payload = jsonEncode({'habitId': habitId});
-
     for (final day in days) {
       final id = habitId.hashCode + day;
-      
       await _notifications.zonedSchedule(
         id,
         'Hora de: $habitName',
@@ -91,78 +81,69 @@ class NotificationService {
             channelDescription: 'Notificaciones para tus hábitos diarios',
             importance: Importance.high,
             priority: Priority.high,
-            showWhen: true,
             icon: '@drawable/ic_notification',
             color: Color(0xFF6B5B95),
             sound: RawResourceAndroidNotificationSound('notification_sound'),
-            actions: <AndroidNotificationAction>[
-              AndroidNotificationAction(
-                'COMPLETE_ACTION',
-                'Marcar como completado',
-                showsUserInterface: false,
-              ),
-            ],
+            actions: <AndroidNotificationAction>[AndroidNotificationAction('COMPLETE_ACTION', 'Marcar como completado')],
           ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-            categoryIdentifier: 'HABIT_REMINDER_CATEGORY',
-          ),
+          iOS: DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true, categoryIdentifier: 'HABIT_REMINDER_CATEGORY'),
         ),
         payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
       );
     }
   }
 
-  // CORRECCIÓN: Se añade el método que faltaba
-  static Future<void> scheduleDailyNotification({
-    required int id,
-    required String title,
-    required String body,
-    required int hour,
-    required int minute,
-  }) async {
+  // --- NUEVA FUNCIÓN PARA PROGRAMAR EL RECORDATORIO DE ÁNIMO ---
+  static Future<void> scheduleDailyMoodReminder() async {
+    final prefs = await SharedPreferences.getInstance();
+    final todayKey = 'mood_reminder_${DateFormat('yyyy-MM-dd').format(DateTime.now())}';
+
+    // 1. Verificamos si ya hemos programado el recordatorio para hoy
+    if (prefs.getBool(todayKey) ?? false) {
+      print('El recordatorio de ánimo para hoy ya fue programado.');
+      return;
+    }
+
+    // 2. Programamos la notificación para las 8 PM (20:00)
     await _notifications.zonedSchedule(
-      id,
-      title,
-      body,
-      _nextInstanceOfTime(hour, minute),
+      _moodReminderId, // Usamos un ID fijo para poder cancelarlo
+      '¿Cómo te fue hoy? 💭',
+      'Tómate un momento para registrar tu estado de ánimo en Vito.',
+      _nextInstanceOfTime(20, 0), // Llama al helper para las 8 PM
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'daily_reminders',
-          'Recordatorios Diarios',
-          channelDescription: 'Recordatorios diarios generales',
-          importance: Importance.high,
-          priority: Priority.high,
+          'mood_reminders', // Un canal separado es una buena práctica
+          'Recordatorios de Ánimo',
+          channelDescription: 'Recordatorios para registrar tu estado de ánimo.',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
         ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
+        iOS: DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),
       ),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
     );
+
+    // 3. Marcamos que ya se programó para hoy para no volverlo a hacer
+    await prefs.setBool(todayKey, true);
+    print('Recordatorio de ánimo programado para las 8 PM de hoy.');
   }
+
+  // --- NUEVA FUNCIÓN PARA CANCELAR EL RECORDATORIO DE ÁNIMO ---
+  static Future<void> cancelDailyMoodReminder() async {
+     await _notifications.cancel(_moodReminderId);
+     print('Recordatorio de ánimo para hoy (si existía) ha sido cancelado.');
+  }
+
+  // --- HELPERS Y OTRAS FUNCIONES (sin cambios) ---
 
   static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final now = tz.TZDateTime.now(tz.local);
-    var scheduledDate = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      hour,
-      minute,
-    );
+    var scheduledDate = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
@@ -171,19 +152,10 @@ class NotificationService {
 
   static tz.TZDateTime _nextInstanceOfWeekdayTime(int weekday, TimeOfDay time) {
     final now = tz.TZDateTime.now(tz.local);
-    var scheduledDate = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      time.hour,
-      time.minute,
-    );
-
+    var scheduledDate = tz.TZDateTime(tz.local, now.year, now.month, now.day, time.hour, time.minute);
     while (scheduledDate.weekday != weekday || scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
-
     return scheduledDate;
   }
 
@@ -199,7 +171,7 @@ class NotificationService {
     String? payload,
   }) async {
      await _notifications.show(
-      0,
+      DateTime.now().millisecond, // ID aleatorio para que no se sobreescriban
       title,
       body,
       const NotificationDetails(
@@ -214,4 +186,8 @@ class NotificationService {
       payload: payload,
     );
   }
+
+  // He eliminado 'scheduleDailyNotification' ya que 'scheduleDailyMoodReminder'
+  // es más específica y hace un trabajo similar. Si la usabas para otra cosa,
+  // puedes mantenerla, pero esta nueva estructura es más clara.
 }

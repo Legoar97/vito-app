@@ -129,11 +129,23 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   String _getErrorMessage(String code) {
+    print('Firebase Auth Error Code: $code'); // ¡Muy útil para depurar!
     switch (code) {
-      case 'user-not-found': return 'No existe una cuenta con este email';
-      case 'wrong-password': return 'Contraseña incorrecta';
-      case 'invalid-email': return 'El formato del email es inválido';
-      default: return 'Ocurrió un error. Inténtalo de nuevo';
+      case 'user-not-found':
+        return 'No existe una cuenta registrada con este correo.';
+      case 'wrong-password':
+      case 'invalid-credential': // Nuevo código de error para credenciales inválidas
+        return 'Las credenciales no son validas. Inténtalo de nuevo.';
+      case 'invalid-email':
+        return 'El formato del correo electrónico es inválido.';
+      case 'user-disabled':
+        return 'Esta cuenta ha sido deshabilitada.';
+      case 'too-many-requests':
+        return 'Demasiados intentos. Intenta de nuevo más tarde.';
+      case 'network-request-failed':
+        return 'Error de red. Revisa tu conexión a internet.';
+      default:
+        return 'Ocurrió un error inesperado. Por favor, intenta de nuevo.';
     }
   }
   
@@ -498,104 +510,120 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     bool isPassword = false,
   }) {
     final bool isFocused = focusNode.hasFocus;
-    
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeInOut,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isFocused 
-              ? Colors.white.withOpacity(0.4)
-              : Colors.white.withOpacity(0.2),
-          width: 1,
-        ),
-        boxShadow: isFocused ? [
-          BoxShadow(
-            color: Colors.white.withOpacity(0.05),
-            blurRadius: 25,
-            spreadRadius: 5,
-          ),
-        ] : [],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: 15,
-            sigmaY: 15,
-          ),
-          child: TextFormField(
-            controller: controller,
-            focusNode: focusNode,
-            keyboardType: keyboardType,
-            obscureText: isPassword && _obscurePassword,
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w300,
-            ),
-            decoration: InputDecoration(
-              labelText: label,
-              labelStyle: GoogleFonts.poppins(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 14,
-                fontWeight: FontWeight.w300,
-              ),
-              prefixIcon: Icon(
-                icon,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              suffixIcon: isPassword
-                  ? IconButton(
-                      onPressed: () {
-                        HapticFeedback.selectionClick();
-                        setState(() => _obscurePassword = !_obscurePassword);
-                      },
-                      icon: Icon(
-                        _obscurePassword 
-                            ? Icons.visibility_off_rounded
-                            : Icons.visibility_rounded,
-                        color: Colors.white.withOpacity(0.7),
-                        size: 20,
-                      ),
-                    )
-                  : null,
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.08),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide.none,
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide(
-                  color: Colors.red.shade300,
-                  width: 1,
-                ),
-              ),
-              errorStyle: GoogleFonts.poppins(
-                color: Colors.red.shade200,
+    final bool hasText = controller.text.isNotEmpty;
+
+    // Envolvemos todo en una columna para tener el label arriba
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 1. Label que aparece/desaparece suavemente
+        Padding(
+          padding: const EdgeInsets.only(left: 20.0, bottom: 8.0),
+          child: AnimatedOpacity(
+            opacity: isFocused || hasText ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeIn,
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                color: Colors.white.withOpacity(0.8),
                 fontSize: 12,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 18,
+                fontWeight: FontWeight.w400,
               ),
             ),
-            validator: validator,
           ),
         ),
-      ),
+        
+        // 2. El campo de texto con efecto de vidrio
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isFocused 
+                  ? Colors.white.withOpacity(0.4)
+                  : Colors.white.withOpacity(0.2),
+              width: 1,
+            ),
+            boxShadow: isFocused ? [
+              BoxShadow(
+                color: Colors.white.withOpacity(0.05),
+                blurRadius: 25,
+                spreadRadius: 5,
+              ),
+            ] : [],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+              child: TextFormField(
+                controller: controller,
+                focusNode: focusNode,
+                keyboardType: keyboardType,
+                obscureText: isPassword && _obscurePassword,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w300,
+                ),
+                decoration: InputDecoration(
+                  // CAMBIO CLAVE: Usamos hintText y lo ocultamos cuando el label de arriba es visible
+                  hintText: isFocused || hasText ? '' : label,
+                  hintStyle: GoogleFonts.poppins(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 16, // Hacemos que el hint tenga el mismo tamaño que el texto
+                    fontWeight: FontWeight.w300,
+                  ),
+                  // Ya no usamos labelText aquí
+                  prefixIcon: Icon(
+                    icon,
+                    color: Colors.white.withOpacity(0.7),
+                    size: 20,
+                  ),
+                  suffixIcon: isPassword
+                      ? IconButton(
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _obscurePassword = !_obscurePassword);
+                          },
+                          icon: Icon(
+                            _obscurePassword 
+                                ? Icons.visibility_off_rounded
+                                : Icons.visibility_rounded,
+                            color: Colors.white.withOpacity(0.7),
+                            size: 20,
+                          ),
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.08),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(color: Colors.red.shade300, width: 1),
+                  ),
+                  errorStyle: GoogleFonts.poppins(color: Colors.red.shade200, fontSize: 12),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                ),
+                validator: validator,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
   

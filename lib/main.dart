@@ -10,7 +10,7 @@ import 'firebase_options.dart';
 // Screens
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
-import 'screens/onboarding_screen.dart';
+// import 'screens/onboarding_screen.dart'; // <--- YA NO SE USA, PUEDES BORRARLO
 import 'screens/main_navigation_screen.dart';
 import 'screens/achievements_screen.dart'; 
 
@@ -75,29 +75,26 @@ class VitoApp extends StatelessWidget {
   }
 }
 
+// --- ROUTER ACTUALIZADO ---
 final GoRouter _router = GoRouter(
   refreshListenable: GoRouterRefreshStream(FirebaseAuth.instance.authStateChanges()),
-  initialLocation: '/',
+  // La ruta inicial ahora es más simple, el redirect se encarga de todo.
+  initialLocation: '/login', 
   routes: [
     GoRoute(
-      path: '/',
-      redirect: (context, state) async {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user == null) {
-          return '/login';
-        }
-
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        final onboardingCompleted = userDoc.data()?['onboardingCompleted'] ?? false;
-
-        return onboardingCompleted ? '/home' : '/onboarding';
-      },
+      path: '/login',
+      builder: (context, state) => const LoginScreen(),
     ),
-    GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
-    GoRoute(path: '/signup', builder: (context, state) => const SignUpScreen()),
-    GoRoute(path: '/onboarding', builder: (context, state) => const OnboardingScreen()),
+    GoRoute(
+      path: '/signup',
+      builder: (context, state) => const SignUpScreen(),
+    ),
+    // ELIMINADA: La ruta '/onboarding' ya no es necesaria.
+    // GoRoute(path: '/onboarding', builder: (context, state) => const OnboardingScreen()), 
     GoRoute(
       path: '/home',
+      // MainNavigationScreen ahora es el destino principal después del login/signup.
+      // Su pantalla de hábitos se encargará de mostrar el tutorial si es necesario.
       builder: (context, state) => const MainNavigationScreen(),
       routes: [
         GoRoute(
@@ -107,33 +104,31 @@ final GoRouter _router = GoRouter(
       ],
     ),
   ],
-  // <<< MEJORA >>> Lógica de redirección inteligente
+  // Lógica de redirección simplificada y adaptada al nuevo flujo.
   redirect: (BuildContext context, GoRouterState state) async {
     final user = FirebaseAuth.instance.currentUser;
-    final bool loggedIn = user != null;
-    final bool isOnAuthRoute = state.matchedLocation == '/login' || state.matchedLocation == '/signup';
-    final bool isOnOnboarding = state.matchedLocation == '/onboarding';
+    final bool isLoggedIn = user != null;
 
-    if (!loggedIn) {
-      // Si no está logueado, solo puede estar en login o signup
-      return isOnAuthRoute ? null : '/login';
+    final bool isGoingToAuth = state.matchedLocation == '/login' || state.matchedLocation == '/signup';
+
+    // CASO 1: El usuario NO está logueado.
+    if (!isLoggedIn) {
+      // Si no está logueado, solo puede ir a las rutas de autenticación.
+      // Si intenta ir a otro lado, se le redirige a /login.
+      return isGoingToAuth ? null : '/login';
     }
 
-    // Si está logueado, verificamos el estado del onboarding
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final bool onboardingCompleted = userDoc.data()?['onboardingCompleted'] ?? false;
-
-    if (!onboardingCompleted) {
-      // Si no ha completado el onboarding, DEBE ir a /onboarding
-      return isOnOnboarding ? null : '/onboarding';
-    }
-    
-    // Si ya completó el onboarding, no puede volver a las rutas de auth/onboarding
-    if (isOnAuthRoute || isOnOnboarding) {
-      return '/home';
+    // CASO 2: El usuario SÍ está logueado.
+    if (isLoggedIn) {
+      // Si el usuario ya está logueado e intenta ir a /login o /signup,
+      // lo redirigimos a /home, que es su lugar correcto.
+      if (isGoingToAuth) {
+        return '/home';
+      }
     }
 
-    // En cualquier otro caso, permite la navegación.
+    // En cualquier otro caso (usuario logueado yendo a /home, /home/achievements, etc.),
+    // no hacemos nada y permitimos la navegación.
     return null;
   },
 );
