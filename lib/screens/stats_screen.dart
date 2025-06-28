@@ -9,6 +9,7 @@ import 'dart:ui';
 import 'dart:math' as math;
 
 import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
 import '../theme/app_colors.dart';
 
 class StatsScreen extends StatefulWidget {
@@ -23,6 +24,8 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
   late AnimationController _fadeController;
   late AnimationController _scaleController;
   late AnimationController _slideController;
+  String? _currentMood;
+  bool _hasTodayMood = false;
   
   @override
   void initState() {
@@ -41,6 +44,8 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
       duration: const Duration(milliseconds: 600),
       vsync: this,
     )..forward();
+    
+    _checkTodayMood();
   }
   
   @override
@@ -93,8 +98,11 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
             slivers: [
               _buildModernSliverAppBar(),
               _buildAnimatedPeriodSelector(),
+              _buildMoodTrackerSection(),
+              SliverToBoxAdapter(child: _buildMoodNotificationToggle()),
               _buildWeeklyAnalysisSection(),
               _buildModernOverviewSection(processedStats),
+              _buildMoodStatsSection(),
               _buildBeautifulChartSection(processedStats),
               _buildStylishCategorySection(processedStats),
               _buildElegantPerformanceSection(processedStats),
@@ -1208,5 +1216,799 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
       default: 
         return [const Color(0xFF607D8B), const Color(0xFF90A4AE)];
     }
+  }
+  
+  // --- Métodos para Mood Tracker ---
+  
+  Future<void> _checkTodayMood() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    
+    final today = DateTime.now();
+    final startOfDay = DateTime(today.year, today.month, today.day);
+    
+    final todayMoodSnapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('moods')
+        .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+        .limit(1)
+        .get();
+    
+    if (todayMoodSnapshot.docs.isNotEmpty) {
+      setState(() {
+        _hasTodayMood = true;
+        _currentMood = todayMoodSnapshot.docs.first.data()['mood'];
+      });
+    }
+  }
+  
+  Future<void> _saveMood(String mood) async {
+    HapticFeedback.lightImpact();
+    
+    setState(() {
+      _currentMood = mood;
+    });
+    
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('moods')
+          .add({
+        'mood': mood,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      
+      setState(() {
+        _hasTodayMood = true;
+      });
+      
+      // Mostrar feedback visual
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '¡Estado de ánimo registrado!',
+              style: GoogleFonts.poppins(),
+            ),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error al guardar mood: $e');
+    }
+  }
+  
+  // Widget para mostrar el mood tracker
+  Widget _buildMoodTrackerSection() {
+    if (_hasTodayMood) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    
+    final moods = [
+      {'name': 'Feliz', 'icon': Icons.sentiment_very_satisfied, 'color': const Color(0xFF4ADE80), 'gradient': [const Color(0xFF4ADE80), const Color(0xFF22C55E)]},
+      {'name': 'Normal', 'icon': Icons.sentiment_satisfied, 'color': const Color(0xFF60A5FA), 'gradient': [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]},
+      {'name': 'Triste', 'icon': Icons.sentiment_dissatisfied, 'color': const Color(0xFF94A3B8), 'gradient': [const Color(0xFF94A3B8), const Color(0xFF64748B)]},
+      {'name': 'Estresado', 'icon': Icons.bolt, 'color': const Color(0xFFFBBF24), 'gradient': [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]},
+      {'name': 'Motivado', 'icon': Icons.local_fire_department, 'color': const Color(0xFFF87171), 'gradient': [const Color(0xFFF87171), const Color(0xFFEF4444)]},
+    ];
+
+    return SliverToBoxAdapter(
+      child: FadeTransition(
+        opacity: _fadeController,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(0.9),
+                      Colors.white.withOpacity(0.8),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.3),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 30,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(
+                            Icons.favorite_rounded,
+                            color: AppColors.primary,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '¿Cómo te sientes hoy?',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF1E293B),
+                                ),
+                              ),
+                              Text(
+                                'Registra tu estado de ánimo',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: moods.map((moodData) {
+                        final moodName = moodData['name'] as String;
+                        final moodIcon = moodData['icon'] as IconData;
+                        final gradientColors = moodData['gradient'] as List<Color>;
+                        final isSelected = _currentMood == moodName;
+
+                        return GestureDetector(
+                          onTap: () => _saveMood(moodName),
+                          child: AnimatedScale(
+                            scale: isSelected ? 1.1 : 1.0,
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeOutBack,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              padding: EdgeInsets.all(isSelected ? 14 : 12),
+                              decoration: BoxDecoration(
+                                gradient: isSelected 
+                                  ? LinearGradient(
+                                      colors: gradientColors,
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    )
+                                  : null,
+                                color: isSelected ? null : Colors.grey.shade100,
+                                shape: BoxShape.circle,
+                                boxShadow: isSelected ? [
+                                  BoxShadow(
+                                    color: gradientColors.first.withOpacity(0.4),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ] : [],
+                              ),
+                              child: Icon(
+                                moodIcon,
+                                color: isSelected ? Colors.white : Colors.grey.shade600,
+                                size: 26,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                
+                // Gráfico de línea temporal de moods
+                if (moodHistory.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Text(
+                    'Historial de Estados',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E293B),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 200,
+                    child: _buildMoodTimelineChart(moodHistory),
+                  ),
+                ],
+                    ),
+                    if (_currentMood != null) ...[
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Text(
+                          _currentMood!,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // Widget para mostrar estadísticas de mood
+  Widget _buildMoodStatsSection() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('moods')
+          .orderBy('timestamp', descending: true)
+          .limit(30) // Últimos 30 días
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const SliverToBoxAdapter(child: SizedBox.shrink());
+        }
+        
+        // Procesar datos de moods
+        final moodCounts = <String, int>{};
+        final moodHistory = <DateTime, String>{};
+        
+        for (var doc in snapshot.data!.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final mood = data['mood'] as String;
+          final timestamp = (data['timestamp'] as Timestamp).toDate();
+          
+          moodCounts[mood] = (moodCounts[mood] ?? 0) + 1;
+          
+          // Solo guardar el mood más reciente de cada día
+          final dateKey = DateTime(timestamp.year, timestamp.month, timestamp.day);
+          if (!moodHistory.containsKey(dateKey)) {
+            moodHistory[dateKey] = mood;
+          }
+        }
+        
+        // Encontrar el mood más frecuente
+        String? mostFrequentMood;
+        int maxCount = 0;
+        moodCounts.forEach((mood, count) {
+          if (count > maxCount) {
+            maxCount = count;
+            mostFrequentMood = mood;
+          }
+        });
+        
+        return SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFFE0E7FF).withOpacity(0.5),
+                  const Color(0xFFC7D2FE).withOpacity(0.3),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.8),
+                width: 2,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tu Estado de Ánimo',
+                          style: GoogleFonts.poppins(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF1E293B),
+                          ),
+                        ),
+                        Text(
+                          'Últimos 30 días',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF6366F1).withOpacity(0.4),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.mood_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                
+                // Mood más frecuente
+                if (mostFrequentMood != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: _getMoodGradient(mostFrequentMood!),
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _getMoodIcon(mostFrequentMood!),
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Estado más frecuente',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  color: const Color(0xFF64748B),
+                                ),
+                              ),
+                              Text(
+                                mostFrequentMood!,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF1E293B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _getMoodGradient(mostFrequentMood!)[0]
+                                .withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            '${((maxCount / snapshot.data!.docs.length) * 100).toInt()}%',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: _getMoodGradient(mostFrequentMood!)[0],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                
+                // Distribución de moods
+                Text(
+                  'Distribución',
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1E293B),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...moodCounts.entries.map((entry) {
+                  final percentage = (entry.value / snapshot.data!.docs.length) * 100;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: _getMoodGradient(entry.key),
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _getMoodIcon(entry.key),
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    entry.key,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: const Color(0xFF1E293B),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${entry.value} días',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      color: const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: TweenAnimationBuilder<double>(
+                                  duration: const Duration(milliseconds: 1000),
+                                  tween: Tween(begin: 0, end: percentage / 100),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (context, value, child) {
+                                    return LinearProgressIndicator(
+                                      value: value,
+                                      minHeight: 8,
+                                      backgroundColor: _getMoodGradient(entry.key)[0]
+                                          .withOpacity(0.2),
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        _getMoodGradient(entry.key)[0],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+  
+  IconData _getMoodIcon(String mood) {
+    switch (mood) {
+      case 'Feliz': return Icons.sentiment_very_satisfied;
+      case 'Normal': return Icons.sentiment_satisfied;
+      case 'Triste': return Icons.sentiment_dissatisfied;
+      case 'Estresado': return Icons.bolt;
+      case 'Motivado': return Icons.local_fire_department;
+      default: return Icons.sentiment_neutral;
+    }
+  }
+  
+  List<Color> _getMoodGradient(String mood) {
+    switch (mood) {
+      case 'Feliz': return [const Color(0xFF4ADE80), const Color(0xFF22C55E)];
+      case 'Normal': return [const Color(0xFF60A5FA), const Color(0xFF3B82F6)];
+      case 'Triste': return [const Color(0xFF94A3B8), const Color(0xFF64748B)];
+      case 'Estresado': return [const Color(0xFFFBBF24), const Color(0xFFF59E0B)];
+      case 'Motivado': return [const Color(0xFFF87171), const Color(0xFFEF4444)];
+      default: return [const Color(0xFF9CA3AF), const Color(0xFF6B7280)];
+    }
+  }
+  
+  Widget _buildMoodTimelineChart(Map<DateTime, String> moodHistory) {
+    // Preparar datos para el gráfico
+    final sortedDates = moodHistory.keys.toList()..sort();
+    final spots = <FlSpot>[];
+    final moodValues = {
+      'Feliz': 5.0,
+      'Motivado': 4.0,
+      'Normal': 3.0,
+      'Estresado': 2.0,
+      'Triste': 1.0,
+    };
+    
+    // Tomar los últimos 7 días
+    final recentDates = sortedDates.length > 7 
+        ? sortedDates.sublist(sortedDates.length - 7) 
+        : sortedDates;
+    
+    for (int i = 0; i < recentDates.length; i++) {
+      final mood = moodHistory[recentDates[i]]!;
+      final value = moodValues[mood] ?? 3.0;
+      spots.add(FlSpot(i.toDouble(), value));
+    }
+    
+    // Si no hay suficientes datos, llenar con valores neutros
+    while (spots.length < 7) {
+      spots.insert(0, FlSpot((spots.length).toDouble(), 3.0));
+    }
+    
+    return Container(
+      padding: const EdgeInsets.only(top: 16, bottom: 8, right: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: LineChart(
+        LineChartData(
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: 1,
+            getDrawingHorizontalLine: (value) {
+              return FlLine(
+                color: const Color(0xFFE2E8F0).withOpacity(0.5),
+                strokeWidth: 1,
+                dashArray: [8, 4],
+              );
+            },
+          ),
+          titlesData: FlTitlesData(
+            show: true,
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 30,
+                interval: 1,
+                getTitlesWidget: (value, meta) {
+                  if (value.toInt() >= 0 && value.toInt() < recentDates.length) {
+                    final date = recentDates[value.toInt()];
+                    return SideTitleWidget(
+                      axisSide: meta.axisSide,
+                      child: Text(
+                        '${date.day}',
+                        style: GoogleFonts.poppins(
+                          color: const Color(0xFF64748B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                interval: 1,
+                reservedSize: 45,
+                getTitlesWidget: (value, meta) {
+                  IconData icon;
+                  Color color;
+                  switch (value.toInt()) {
+                    case 5: 
+                      icon = Icons.sentiment_very_satisfied;
+                      color = const Color(0xFF4ADE80);
+                      break;
+                    case 4: 
+                      icon = Icons.local_fire_department;
+                      color = const Color(0xFFF87171);
+                      break;
+                    case 3: 
+                      icon = Icons.sentiment_satisfied;
+                      color = const Color(0xFF60A5FA);
+                      break;
+                    case 2: 
+                      icon = Icons.bolt;
+                      color = const Color(0xFFFBBF24);
+                      break;
+                    case 1: 
+                      icon = Icons.sentiment_dissatisfied;
+                      color = const Color(0xFF94A3B8);
+                      break;
+                    default: 
+                      return const SizedBox.shrink();
+                  }
+                  return SideTitleWidget(
+                    axisSide: meta.axisSide,
+                    child: Icon(icon, size: 20, color: color),
+                  );
+                },
+              ),
+            ),
+          ),
+          borderData: FlBorderData(show: false),
+          minY: 0.5,
+          maxY: 5.5,
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: true,
+              curveSmoothness: 0.4,
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF6366F1),
+                  Color(0xFF8B5CF6),
+                ],
+              ),
+              barWidth: 4,
+              isStrokeCapRound: true,
+              dotData: FlDotData(
+                show: true,
+                getDotPainter: (spot, percent, barData, index) {
+                  if (index < recentDates.length) {
+                    final mood = moodHistory[recentDates[index]]!;
+                    final colors = _getMoodGradient(mood);
+                    return FlDotCirclePainter(
+                      radius: 8,
+                      color: colors[0],
+                      strokeWidth: 3,
+                      strokeColor: Colors.white,
+                    );
+                  }
+                  return FlDotCirclePainter(
+                    radius: 6,
+                    color: const Color(0xFF6366F1),
+                    strokeWidth: 3,
+                    strokeColor: Colors.white,
+                  );
+                },
+              ),
+              belowBarData: BarAreaData(
+                show: true,
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF6366F1).withOpacity(0.15),
+                    const Color(0xFF8B5CF6).withOpacity(0.05),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+          ],
+          lineTouchData: LineTouchData(
+            touchTooltipData: LineTouchTooltipData(
+              tooltipBgColor: Colors.white,
+              tooltipRoundedRadius: 12,
+              tooltipPadding: const EdgeInsets.all(12),
+              tooltipMargin: 8,
+              getTooltipItems: (touchedSpots) {
+                return touchedSpots.map((spot) {
+                  if (spot.barIndex == 0 && spot.spotIndex < recentDates.length) {
+                    final date = recentDates[spot.spotIndex];
+                    final mood = moodHistory[date]!;
+                    return LineTooltipItem(
+                      '$mood\n${date.day}/${date.month}',
+                      GoogleFonts.poppins(
+                        color: _getMoodGradient(mood)[0],
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    );
+                  }
+                  return null;
+                }).toList();
+              },
+            ),
+            handleBuiltInTouches: true,
+            getTouchedSpotIndicator: (LineChartBarData barData, List<int> spotIndexes) {
+              return spotIndexes.map((spotIndex) {
+                return TouchedSpotIndicatorData(
+                  FlLine(
+                    color: const Color(0xFF6366F1).withOpacity(0.4),
+                    strokeWidth: 2,
+                    dashArray: [5, 5],
+                  ),
+                  FlDotData(
+                    getDotPainter: (spot, percent, barData, index) {
+                      return FlDotCirclePainter(
+                        radius: 10,
+                        color: Colors.white,
+                        strokeWidth: 4,
+                        strokeColor: const Color(0xFF6366F1),
+                      );
+                    },
+                  ),
+                );
+              }).toList();
+            },
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // Método para configurar recordatorio de mood
+  Future<void> _setupMoodReminder() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    
+    // Programar notificación diaria a las 8 PM
+    await NotificationService.scheduleDailyNotification(
+      id: 999, // ID especial para mood reminder
+      title: '¿Cómo te sientes hoy? 💭',
+      body: 'Toma un momento para registrar tu estado de ánimo',
+      hour: 20,
+      minute: 0,
+    );
+    
+    // Guardar preferencia en Firestore
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .update({
+      'moodReminderEnabled': true,
+      'moodReminderTime': '20:00',
+    });
   }
 }

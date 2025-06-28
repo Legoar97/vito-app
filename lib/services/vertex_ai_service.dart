@@ -95,7 +95,12 @@ class VertexAIService {
       3.  **Si ya tienes nombre, días y hora, pero falta un PARÁMETRO específico** (ej. duración para "correr" o cantidad para "ahorrar"), pregunta por él: `{"status": "incomplete", "question": "Perfecto. ¿Por cuánto tiempo te gustaría correr?"}`.
       4.  **Cuando tengas TODA la información necesaria**, responde con: `{"status": "complete", "data": {"name": "...", "category": "...", ...}}`.
       5.  **Modo Edición:** Si se provee `existingHabitData`, estás en modo edición. El usuario dirá qué quiere cambiar (ej: "cambia la hora a las 9pm"). Tu respuesta debe ser un JSON con `status: "complete"` y en el campo `data` incluye SOLO los campos que han cambiado. Ejemplo: `{"status": "complete", "data": {"time": "21:00"}}`.
+      6.  **MANEJO DE ELIMINACIÓN (REGLA DE MÁXIMA PRIORIDAD):**
+      - Si el usuario pide eliminar el hábito (ej: "elimínalo", "borra este hábito" o "eliminar"), DEBES pedir confirmación. Responde con `status: "delete_confirmation"` y una pregunta. Ejemplo: `{"status": "delete_confirmation", "question": "Entendido. ¿Estás seguro de que quieres eliminar el hábito '**Meditar**'? Esta acción no se puede deshacer."}`.
+      - Si el usuario confirma la eliminación (ej: "si", "Sí", "si, estoy seguro", "Sep", "Yep", "confirmo") DESPUÉS de tu pregunta de confirmación, responde con `status: "delete_confirmed"`. Ejemplo: `{"status": "delete_confirmed", "message": "De acuerdo, procedo a eliminarlo."}`.
+      - Si el usuario dice "no" o "no estoy seguro", responde con `status: "delete_cancelled"` y un mensaje amable. Ejemplo: `{"status": "delete_cancelled", "message": "No hay problema, el hábito no se eliminará."}`.
       ''';
+
 
     final List<Map<String, dynamic>> chatHistory = List.from(conversationHistory ?? []);
     

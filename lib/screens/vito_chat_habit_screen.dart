@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:convert';
 
 import '../models/habit.dart';
 import '../theme/app_colors.dart';
@@ -37,11 +38,34 @@ class HabitBuilder {
   String? category;
   List<int>? days;
   TimeOfDay? time;
-  int? duration; // Para ejercicio, meditación, etc
-  double? amount; // Para ahorro, agua, etc
-  String? unit; // minutos, pesos, litros, etc
-  
-  bool get isComplete => name != null && category != null && days != null && time != null;
+  int? duration;
+  double? amount;
+  String? unit;
+
+  // Actualizamos el builder a partir de un mapa de datos
+  void updateWith(Map<String, dynamic> data) {
+    if (data.containsKey('name')) name = data['name'];
+    if (data.containsKey('category')) category = data['category'];
+    if (data.containsKey('days')) days = List<int>.from(data['days']);
+    if (data.containsKey('time')) {
+      final timeParts = (data['time'] as String).split(':');
+      time = TimeOfDay(hour: int.parse(timeParts[0]), minute: int.parse(timeParts[1]));
+    }
+    if (data.containsKey('parameters')) {
+      final params = data['parameters'];
+      if (params.containsKey('duration')) duration = params['duration'];
+      if (params.containsKey('amount')) amount = params['amount']?.toDouble();
+      if (params.containsKey('unit')) unit = params['unit'];
+    }
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name, 'category': category, 'days': days, 'time': time != null ? '${time!.hour}:${time!.minute}' : null, 'duration': duration, 'amount': amount, 'unit': unit,
+    };
+  }
+
+  bool get isReadyForConfirmation => name != null && days != null && days!.isNotEmpty && time != null;
 }
 
 class VitoChatHabitSheet extends StatefulWidget {
@@ -116,11 +140,17 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) {
         if (isEditMode) {
+          final habit = widget.habit!;
+          _habitBuilder.name = habit.name;
+          _habitBuilder.category = habit.category;
+          _habitBuilder.days = habit.days;
+          _habitBuilder.time = habit.specificTime;
+          // ------------------------------------
+
           _addVitoMessage(
             '¡Hola $_userName! 👋\n\n¿Qué te gustaría cambiar de tu hábito "${widget.habit!.name}"?'
           );
           
-          // Agregar botones de edición/eliminación después del mensaje inicial
           Future.delayed(const Duration(milliseconds: 1000), () {
             setState(() {
               _messages.add(ChatMessage(
@@ -198,255 +228,91 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
     _addUserMessage(text);
     
     setState(() => _isProcessing = true);
+    final conversationHistory = _messages.map((msg) {
+      return {'role': msg.type == MessageType.user ? 'user' : 'model', 'parts': [{'text': msg.text}]};
+    }).toList();
     
-    // Procesar el mensaje
-    await _processUserInput(text);
-    
-    setState(() => _isProcessing = false);
-  }
-  
-  Future<void> _processUserInput(String input) async {
-    // Aquí simularemos el procesamiento de IA
-    // En producción, esto llamaría a Vertex AI
-    
-    final lowerInput = input.toLowerCase();
-    
-    // Extraer información del input
-    _extractHabitInfo(lowerInput);
-    
-    // Verificar qué información falta y preguntar
-    if (_habitBuilder.name == null) {
-      _addVitoMessage(
-        '¿Podrías decirme específicamente qué hábito quieres crear? Por ejemplo: "leer", "hacer ejercicio", "meditar"... 🤔'
-      );
-    } else if (_habitBuilder.days == null || _habitBuilder.days!.isEmpty) {
-      _addVitoMessage(
-        'Perfecto, quieres ${_habitBuilder.name}. ¿Qué días te gustaría hacerlo? 📅\n\nPuedes decir:\n• "Todos los días"\n• "De lunes a viernes"\n• "Lunes, miércoles y viernes"\n• "Solo los domingos"'
-      );
-    } else if (_habitBuilder.time == null) {
-      _addVitoMessage(
-        '¡Genial! ¿A qué hora prefieres ${_habitBuilder.name}? ⏰\n\nPor ejemplo: "a las 6 am", "7:30 pm", "por la mañana"...'
-      );
-    } else if (_needsAdditionalInfo()) {
-      _askForAdditionalInfo();
-    } else {
-      // Tenemos toda la información necesaria
-      _confirmHabit();
+    // 2. Llamamos al servicio de IA
+    final jsonResponse = await VertexAIService.parseHabitFromText(
+      userInput: text,
+      conversationHistory: conversationHistory,
+      existingHabitData: _habitBuilder.toMap(),
+    );
+
+    // 3. Procesamos la respuesta estructurada de la IA
+    _handleAIResponse(jsonResponse);
+
+    if (mounted) {
+      setState(() => _isProcessing = false);
     }
   }
-  
-  void _extractHabitInfo(String input) {
-    // Extraer nombre del hábito
-    if (_habitBuilder.name == null) {
-      // Buscar verbos comunes de hábitos
-      final habitPatterns = {
-        'meditar': 'Meditación',
-        'correr': 'Salir a correr',
-        'caminar': 'Caminata',
-        'leer': 'Lectura',
-        'escribir': 'Escritura',
-        'ahorrar': 'Ahorro',
-        'agua': 'Tomar agua',
-        'dormir': 'Dormir temprano',
-        'despertar': 'Despertar temprano',
-        'ejercicio': 'Hacer ejercicio',
-        'yoga': 'Practicar yoga',
-        'estudiar': 'Estudiar',
-      };
-      
-      for (final pattern in habitPatterns.keys) {
-        if (input.contains(pattern)) {
-          _habitBuilder.name = habitPatterns[pattern];
-          _categorizeHabit(pattern);
+
+  void _handleAIResponse(String jsonResponse) {
+    try {
+      final response = jsonDecode(jsonResponse);
+      final status = response['status'];
+
+      switch (status) {
+        case 'greeting':
+          _addVitoMessage(response['message']);
           break;
-        }
+        
+        case 'incomplete':
+          _addVitoMessage(response['question']);
+          break;
+
+        case 'complete':
+          final habitData = Map<String, dynamic>.from(response['data']);
+          _habitBuilder.updateWith(habitData);
+
+          // Una vez que la IA dice que está completo, confirmamos.
+          _confirmHabit();
+          break;
+          
+        case 'error':
+        default:
+          _addVitoMessage(response['message'] ?? 'Lo siento, tuve un problema. ¿Intentamos de nuevo?');
+          break;
       }
-    }
-    
-    // Extraer días
-    if (input.contains('todos los días') || input.contains('diario') || input.contains('diariamente')) {
-      _habitBuilder.days = [1, 2, 3, 4, 5, 6, 7];
-    } else if (input.contains('lunes a viernes') || input.contains('entre semana')) {
-      _habitBuilder.days = [1, 2, 3, 4, 5];
-    } else if (input.contains('fin de semana') || input.contains('fines de semana')) {
-      _habitBuilder.days = [6, 7];
-    } else {
-      // Buscar días específicos
-      final dayMap = {
-        'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
-        'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6,
-        'domingo': 7,
-      };
-      
-      List<int> extractedDays = [];
-      for (final day in dayMap.keys) {
-        if (input.contains(day)) {
-          extractedDays.add(dayMap[day]!);
-        }
-      }
-      
-      if (extractedDays.isNotEmpty) {
-        _habitBuilder.days = extractedDays..sort();
-      }
-    }
-    
-    // Extraer hora
-    final timeRegex = RegExp(r'(\d{1,2}):?(\d{2})?\s*(am|pm|AM|PM)?');
-    final match = timeRegex.firstMatch(input);
-    if (match != null) {
-      int hour = int.parse(match.group(1)!);
-      int minute = match.group(2) != null ? int.parse(match.group(2)!) : 0;
-      final period = match.group(3)?.toLowerCase();
-      
-      if (period == 'pm' && hour < 12) hour += 12;
-      if (period == 'am' && hour == 12) hour = 0;
-      
-      _habitBuilder.time = TimeOfDay(hour: hour, minute: minute);
-    } else if (input.contains('mañana')) {
-      _habitBuilder.time = const TimeOfDay(hour: 7, minute: 0);
-    } else if (input.contains('tarde')) {
-      _habitBuilder.time = const TimeOfDay(hour: 15, minute: 0);
-    } else if (input.contains('noche')) {
-      _habitBuilder.time = const TimeOfDay(hour: 20, minute: 0);
-    }
-    
-    // Extraer duración (para ejercicio, meditación, etc)
-    final durationRegex = RegExp(r'(\d+)\s*(minutos?|min|horas?|hr)');
-    final durationMatch = durationRegex.firstMatch(input);
-    if (durationMatch != null) {
-      int value = int.parse(durationMatch.group(1)!);
-      String unit = durationMatch.group(2)!.toLowerCase();
-      
-      if (unit.contains('hora')) {
-        _habitBuilder.duration = value * 60; // Convertir a minutos
-      } else {
-        _habitBuilder.duration = value;
-      }
-      _habitBuilder.unit = 'minutos';
-    }
-    
-    // Extraer cantidad (para ahorro, agua, etc)
-    final amountRegex = RegExp(r'(\d+\.?\d*)\s*(mil|k|pesos|cop|litros?|l|vasos?)');
-    final amountMatch = amountRegex.firstMatch(input);
-    if (amountMatch != null) {
-      double value = double.parse(amountMatch.group(1)!);
-      String unit = amountMatch.group(2)!.toLowerCase();
-      
-      if (unit.contains('mil') || unit == 'k') {
-        value *= 1000;
-        _habitBuilder.amount = value;
-        _habitBuilder.unit = 'pesos';
-      } else if (unit.contains('peso') || unit.contains('cop')) {
-        _habitBuilder.amount = value;
-        _habitBuilder.unit = 'pesos';
-      } else if (unit.contains('litro') || unit == 'l') {
-        _habitBuilder.amount = value;
-        _habitBuilder.unit = 'litros';
-      } else if (unit.contains('vaso')) {
-        _habitBuilder.amount = value;
-        _habitBuilder.unit = 'vasos';
-      }
-    }
-  }
-  
-  void _categorizeHabit(String habitType) {
-    // Categorizar automáticamente basado en el tipo de hábito
-    final categories = {
-      'health': ['correr', 'caminar', 'ejercicio', 'yoga', 'agua', 'dormir'],
-      'mind': ['meditar', 'leer', 'escribir', 'estudiar'],
-      'finance': ['ahorrar', 'presupuesto', 'inversión'],
-      'productivity': ['despertar', 'planificar', 'organizar'],
-    };
-    
-    for (final category in categories.entries) {
-      if (category.value.contains(habitType)) {
-        _habitBuilder.category = category.key;
-        return;
-      }
-    }
-    
-    _habitBuilder.category = 'otros';
-  }
-  
-  bool _needsAdditionalInfo() {
-    final habit = _habitBuilder.name?.toLowerCase() ?? '';
-    
-    // Hábitos que necesitan duración
-    if (['meditar', 'correr', 'caminar', 'ejercicio', 'yoga', 'leer', 'estudiar']
-        .any((h) => habit.contains(h))) {
-      return _habitBuilder.duration == null;
-    }
-    
-    // Hábitos que necesitan cantidad
-    if (['ahorrar', 'agua'].any((h) => habit.contains(h))) {
-      return _habitBuilder.amount == null;
-    }
-    
-    return false;
-  }
-  
-  void _askForAdditionalInfo() {
-    final habit = _habitBuilder.name?.toLowerCase() ?? '';
-    
-    if (['meditar', 'correr', 'caminar', 'ejercicio', 'yoga', 'leer', 'estudiar']
-        .any((h) => habit.contains(h))) {
-      _addVitoMessage(
-        '¿Por cuánto tiempo quieres ${_habitBuilder.name}? ⏱️\n\nPor ejemplo: "30 minutos", "1 hora", "45 min"...'
-      );
-    } else if (habit.contains('ahorrar')) {
-      _addVitoMessage(
-        '¿Cuánto dinero quieres ahorrar? 💰\n\nPor ejemplo: "50 mil pesos", "100k", "200.000 cop"...'
-      );
-    } else if (habit.contains('agua')) {
-      _addVitoMessage(
-        '¿Cuánta agua quieres tomar? 💧\n\nPor ejemplo: "2 litros", "8 vasos", "1.5L"...'
-      );
+    } catch (e) {
+      print("Error al decodificar JSON de la IA: $e");
+      _addVitoMessage('No entendí muy bien. ¿Podrías decirlo de otra manera?');
     }
   }
   
   void _confirmHabit() {
-    // Construir el resumen del hábito
+    // Esta función ahora es más simple. Solo muestra los datos que la IA ya procesó.
     String summary = '¡Perfecto! He preparado tu hábito:\n\n';
     summary += '✅ **${_habitBuilder.name}**\n';
     
-    // Días
     final dayNames = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-    final selectedDayNames = _habitBuilder.days!
-        .map((d) => dayNames[d - 1])
-        .join(', ');
-    summary += '📅 Días: $selectedDayNames\n';
+    if (_habitBuilder.days != null && _habitBuilder.days!.isNotEmpty) {
+      final selectedDayNames = _habitBuilder.days!.map((d) => dayNames[d - 1]).join(', ');
+      summary += '📅 Días: $selectedDayNames\n';
+    }
     
-    // Hora
-    summary += '⏰ Hora: ${_habitBuilder.time!.format(context)}\n';
+    if (_habitBuilder.time != null) {
+      summary += '⏰ Hora: ${_habitBuilder.time!.format(context)}\n';
+    }
     
-    // Info adicional
     if (_habitBuilder.duration != null) {
-      summary += '⏱️ Duración: ${_habitBuilder.duration} ${_habitBuilder.unit}\n';
+      summary += '⏱️ Duración: ${_habitBuilder.duration} minutos\n';
     }
     if (_habitBuilder.amount != null) {
-      summary += '💵 Cantidad: ${_habitBuilder.amount?.toStringAsFixed(0)} ${_habitBuilder.unit}\n';
+      summary += '💵 Cantidad: ${_habitBuilder.amount?.toStringAsFixed(0)} ${_habitBuilder.unit ?? ''}\n';
     }
     
-    summary += '\n¿Te parece bien? Puedo crearlo ahora o ajustar lo que necesites 🎯';
+    summary += '\n¿Te parece bien?';
     
-    // Agregar el mensaje con un marcador especial para los botones
     setState(() {
-      _messages.add(ChatMessage(
-        text: summary,
-        type: MessageType.vito,
-        timestamp: DateTime.now(),
-      ));
-      // Agregar los botones inmediatamente después
-      _messages.add(ChatMessage(
-        text: 'ACTION_BUTTONS',
-        type: MessageType.vito,
-        timestamp: DateTime.now(),
-      ));
+      _messages.add(ChatMessage(text: summary, type: MessageType.vito, timestamp: DateTime.now()));
+      _messages.add(ChatMessage(text: 'ACTION_BUTTONS', type: MessageType.vito, timestamp: DateTime.now()));
     });
     
     _scrollToBottom();
-    HapticFeedback.lightImpact();
   }
+
+
   
   Future<void> _createHabitFromBuilder() async {
     setState(() => _isProcessing = true);
@@ -504,7 +370,7 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
       );
       
       // Cerrar después de un delay
-      Future.delayed(const Duration(seconds: 3), () {
+      Future.delayed(const Duration(seconds: 5), () {
         if (mounted) {
           HapticFeedback.heavyImpact();
           Navigator.pop(context);
