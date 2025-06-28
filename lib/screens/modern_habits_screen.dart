@@ -9,8 +9,7 @@ import 'dart:math' as math;
 
 import '../models/habit.dart';
 import '../theme/app_colors.dart';
-import '../widgets/add_habit_bottom_sheet.dart';
-import '../widgets/edit_habit_bottom_sheet.dart';
+import '../screens/vito_chat_habit_screen.dart'; 
 
 // Modelo para la Sugerencia de la IA
 class SuggestedHabit {
@@ -128,22 +127,16 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
 
   void _addSuggestedHabitWithForm(SuggestedHabit habit) {
     final habitToRemove = habit;
-    final categoryMap = {
-      'Salud': 'health',
-      'Mente': 'mind',
-      'Trabajo': 'productivity',
-      'Creativo': 'creativity',
-      'Finanzas': 'finance',
-    };
     
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context, 
       isScrollControlled: true, 
       backgroundColor: Colors.transparent, 
-      builder: (context) => AddHabitBottomSheet(
-        prefilledName: habit.name,
-        prefilledCategory: categoryMap[habit.category] ?? 'health',
+      // --- CORRECCIÓN FINAL AQUÍ ---
+      builder: (context) => VitoChatHabitSheet(
+        // Le pasamos el nombre del hábito como el primer mensaje del usuario
+        initialMessage: habit.name,
       ),
     ).then((_) {
       if (mounted) {
@@ -321,9 +314,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                   if (_suggestedHabits.isNotEmpty)
                     _buildPremiumSuggestionsSection(),
                   _buildPremiumHabitsListHeader(),
+                  _buildHabitIdeaSection(),
                   _buildPremiumHabitsList(allHabits),
-                  _buildPremiumCategoriesHeader(),
-                  _buildPremiumCategoriesSection(),
                   const SliverToBoxAdapter(
                     child: SizedBox(height: 100),
                   ),
@@ -1027,7 +1019,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
         IconButton(
           onPressed: () {
             HapticFeedback.lightImpact();
-            setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 7)));
+            // --- CAMBIO AQUÍ: Retrocede un día ---
+            setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 1)));
           },
           icon: Container(
             padding: const EdgeInsets.all(8),
@@ -1043,15 +1036,13 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           ),
         ),
         Expanded(
-          child: SizedBox(
-            height: 70,
-            child: _buildWeekDays(),
-          ),
+          child: _buildWeekDays(),
         ),
         IconButton(
           onPressed: () {
             HapticFeedback.lightImpact();
-            setState(() => _selectedDate = _selectedDate.add(const Duration(days: 7)));
+            // --- CAMBIO AQUÍ: Avanza un día ---
+            setState(() => _selectedDate = _selectedDate.add(const Duration(days: 1)));
           },
           icon: Container(
             padding: const EdgeInsets.all(8),
@@ -1069,85 +1060,95 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       ],
     );
   }
-
   Widget _buildWeekDays() {
-    final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
-    return ListView.builder(
-      scrollDirection: Axis.horizontal,
-      itemCount: 7,
-      physics: const BouncingScrollPhysics(),
-      itemBuilder: (context, index) {
-        final date = startOfWeek.add(Duration(days: index));
+    // --- CAMBIO DE LÓGICA: El inicio es 2 días antes del seleccionado ---
+    final startDay = _selectedDate.subtract(const Duration(days: 2));
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: List.generate(5, (index) { // --- CAMBIO: Generamos solo 5 días ---
+        final date = startDay.add(Duration(days: index));
         final isSelected = _isSameDay(date, _selectedDate);
         final isToday = _isSameDay(date, DateTime.now());
-        
+
+        // Pequeña animación para resaltar el día seleccionado
+        final double scale = isSelected ? 1.1 : 1.0;
+
         return GestureDetector(
           onTap: () {
             HapticFeedback.selectionClick();
+            // Si el usuario toca un día, la vista se centra en él
             setState(() => _selectedDate = date);
           },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutBack,
-            width: 52,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            decoration: BoxDecoration(
-              color: isSelected 
-                ? Colors.white 
-                : Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: isSelected 
-                  ? Colors.white 
-                  : (isToday ? Colors.white.withOpacity(0.5) : Colors.transparent),
-                width: 2,
+          child: AnimatedScale(
+            scale: scale,
+            duration: const Duration(milliseconds: 200),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutBack,
+              width: 50,
+              height: 75,
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isToday && !isSelected
+                      ? Colors.white.withOpacity(0.5)
+                      : Colors.transparent,
+                  width: 1.5,
+                ),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        )
+                      ]
+                    : [],
               ),
-              boxShadow: isSelected ? [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ] : [],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  DateFormat.E('es_ES').format(date).substring(0, 2).toUpperCase(),
-                  style: GoogleFonts.poppins(
-                    color: isSelected ? AppColors.primary : Colors.white.withOpacity(0.8),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  DateFormat.d().format(date),
-                  style: GoogleFonts.poppins(
-                    color: isSelected ? AppColors.primary : Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (isToday) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 4,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: isSelected ? AppColors.primary : Colors.white,
-                      shape: BoxShape.circle,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    DateFormat.E('es_ES').format(date).substring(0, 2).toUpperCase(),
+                    style: GoogleFonts.poppins(
+                      color: isSelected
+                          ? AppColors.primary
+                          : Colors.white.withOpacity(0.8),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    DateFormat.d().format(date),
+                    style: GoogleFonts.poppins(
+                      color: isSelected ? AppColors.primary : Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (isToday) ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.primary : Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ]
                 ],
-              ],
+              ),
             ),
           ),
         );
-      },
+      }),
     );
   }
+
   
   int _getStreakFromHabitsData(List<QueryDocumentSnapshot> habits) {
     if (habits.isEmpty) return 0;
@@ -1395,122 +1396,87 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     );
   }
 
-  SliverToBoxAdapter _buildPremiumCategoriesHeader() {
+
+  Widget _buildHabitIdeaSection() {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 32, 20, 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Explora categorías',
-              style: GoogleFonts.poppins(
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF1E293B),
+        // Un poco más de espacio vertical para que respire mejor
+        padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
+        child: GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            // Para mantenerlo simple, elegimos una categoría al azar para la IA.
+            // El usuario no lo nota, pero nos da sugerencias variadas.
+            final categories = ['Salud', 'Mente', 'Trabajo', 'Creativo', 'Finanzas'];
+            final randomCategory = categories[math.Random().nextInt(categories.length)];
+            _getAiHabitSuggestions(randomCategory);
+          },
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primary.withOpacity(0.05),
+                  AppColors.secondary.withOpacity(0.05),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.08),
+                  blurRadius: 30,
+                  offset: const Offset(0, 10),
+                ),
+              ],
             ),
-            Icon(
-              Icons.arrow_forward,
-              color: Colors.grey[400],
-              size: 20,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  SliverToBoxAdapter _buildPremiumCategoriesSection() {
-    final categories = [
-      {'name': 'Salud', 'icon': Icons.favorite_rounded, 'color': const Color(0xFF4ADE80), 'gradient': [const Color(0xFF4ADE80), const Color(0xFF22C55E)]},
-      {'name': 'Mente', 'icon': Icons.self_improvement, 'color': const Color(0xFF818CF8), 'gradient': [const Color(0xFF818CF8), const Color(0xFF6366F1)]},
-      {'name': 'Trabajo', 'icon': Icons.work_rounded, 'color': const Color(0xFF60A5FA), 'gradient': [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]},
-      {'name': 'Creativo', 'icon': Icons.palette_rounded, 'color': const Color(0xFFFBBF24), 'gradient': [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]},
-      {'name': 'Finanzas', 'icon': Icons.attach_money_rounded, 'color': const Color(0xFFA78BFA), 'gradient': [const Color(0xFFA78BFA), const Color(0xFF8B5CF6)]},
-    ];
-    
-    return SliverToBoxAdapter(
-      child: SizedBox(
-        height: 140,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          physics: const BouncingScrollPhysics(),
-          itemCount: categories.length,
-          itemBuilder: (context, index) {
-            final category = categories[index];
-            final gradientColors = category['gradient'] as List<Color>;
-            
-            return TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: 1.0),
-              duration: Duration(milliseconds: 600 + (index * 100)),
-              curve: Curves.easeOutBack,
-              builder: (context, value, child) {
-                return Transform.translate(
-                  offset: Offset(0, 50 * (1 - value)),
-                  child: Opacity(
-                    opacity: value,
-                    child: child,
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                );
-              },
-              child: GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  _getAiHabitSuggestions(category['name'] as String);
-                },
-                child: Container(
-                  width: 100,
-                  margin: const EdgeInsets.only(right: 16),
+                  child: const Icon(
+                    Icons.lightbulb_outline_rounded,
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: gradientColors,
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: gradientColors.first.withOpacity(0.3),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Icon(
-                          category['icon'] as IconData,
-                          color: Colors.white,
-                          size: 32,
+                      Text(
+                        "Ideas para Hábitos",
+                        style: GoogleFonts.poppins(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E293B),
                         ),
                       ),
-                      const SizedBox(height: 12),
                       Text(
-                        category['name'] as String,
-                        textAlign: TextAlign.center,
+                        "Toca para recibir una sugerencia de la IA",
                         style: GoogleFonts.poppins(
                           fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: const Color(0xFF475569),
+                          color: const Color(0xFF64748B),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            );
-          },
+                const Icon(Icons.arrow_forward_ios_rounded, color: Colors.grey, size: 18),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
-
   SliverToBoxAdapter _buildPremiumHabitsListHeader() {
     return SliverToBoxAdapter(
       child: Padding(
@@ -1756,7 +1722,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       context: context, 
       isScrollControlled: true, 
       backgroundColor: Colors.transparent, 
-      builder: (context) => const AddHabitBottomSheet(),
+      builder: (context) => const VitoChatHabitSheet(),
     );
   }
 
@@ -1779,7 +1745,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => EditHabitBottomSheet(habit: habit),
+      builder: (context) => VitoChatHabitSheet(habit: habit),
     );
   }
 

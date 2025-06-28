@@ -9,7 +9,7 @@ import 'package:intl/intl.dart';
 
 import '../theme/app_colors.dart';
 import '../services/vertex_ai_service.dart';
-import '../models/chat_message.dart';
+import '../models/chat_message.dart'; 
 
 class AICoachScreen extends StatefulWidget {
   const AICoachScreen({super.key});
@@ -23,7 +23,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
   final List<ChatMessage> _messages = [
     ChatMessage(
       text: "¡Hola! Soy Vito, tu coach de bienestar con IA. ¿En qué te gustaría enfocarte hoy?",
-      isUser: false,
+      type: MessageType.vito,
       timestamp: DateTime.now(),
     ),
   ];
@@ -48,6 +48,18 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          0, // In a reversed ListView, 0 is the bottom.
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
@@ -191,9 +203,9 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       },
     );
   }
-
+  
   Widget _buildMessage(ChatMessage message) {
-    final isUser = message.isUser;
+    final isUser = message.type == MessageType.user;
     
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -263,7 +275,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       ),
     );
   }
-
+  
   Widget _buildTypingIndicator() {
     _animationController.repeat();
     return Padding(
@@ -383,7 +395,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       ),
     );
   }
-
+  
   void _handleQuickAction(String action) {
     String prompt;
     switch (action) {
@@ -439,8 +451,8 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       },
     );
   }
-
-  void _sendMessage({bool isRoutineRequest = false, String? userContent}) async {
+  
+  Future<void> _sendMessage({bool isRoutineRequest = false, String? userContent}) async {
     final messageText = userContent ?? _messageController.text.trim();
     if (messageText.isEmpty) return;
 
@@ -448,11 +460,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       setState(() => _showQuickActions = false);
     }
 
-    final userMessage = ChatMessage(
-      text: messageText,
-      isUser: true,
-      timestamp: DateTime.now(),
-    );
+    final userMessage = ChatMessage(text: messageText, type: MessageType.user, timestamp: DateTime.now());
 
     setState(() {
       _messages.insert(0, userMessage);
@@ -465,26 +473,16 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
     final userContext = await _getUserContext();
     final conversationForAPI = _messages.reversed.toList();
     
-    // NOTA: Asegúrate de tener la función `getRoutine` en `vertex_ai_service.dart`.
-    // Esta función debería aceptar el objetivo del usuario y su contexto,
-    // y devolver un JSON con la estructura { "habits": [...] }.
     if (isRoutineRequest) {
       final jsonResponse = await VertexAIService.getRoutine(userGoal: messageText, userContext: userContext);
       _handleRoutineResponse(jsonResponse);
 
     } else {
-      final response = await VertexAIService.getHabitAdvice(
-        conversationHistory: conversationForAPI,
-        userContext: userContext,
-      );
+      final response = await VertexAIService.getHabitAdvice(conversationHistory: conversationForAPI, userContext: userContext);
       if (mounted) {
         setState(() {
           _isTyping = false;
-          _messages.insert(0, ChatMessage(
-            text: response,
-            isUser: false,
-            timestamp: DateTime.now(),
-          ));
+          _messages.insert(0, ChatMessage(text: response, type: MessageType.vito, timestamp: DateTime.now()));
         });
       }
     }
@@ -499,7 +497,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       final decoded = jsonDecode(jsonResponse);
       final List<dynamic> habits = decoded['habits'];
       
-      _messages.insert(0, ChatMessage(text: "¡Claro! He preparado esta rutina para ti. ¿Quieres añadirla a tus hábitos?", isUser: false, timestamp: DateTime.now()));
+      _messages.insert(0, ChatMessage(text: "¡Claro! He preparado esta rutina para ti. ¿Quieres añadirla a tus hábitos?", type: MessageType.vito, timestamp: DateTime.now()));
       
       showDialog(
         context: context,
@@ -528,7 +526,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
         }
       );
     } catch (e) {
-      _messages.insert(0, ChatMessage(text: "Lo siento, no pude procesar la rutina. Inténtalo de nuevo.", isUser: false, timestamp: DateTime.now()));
+      _messages.insert(0, ChatMessage(text: "Lo siento, no pude procesar la rutina. Inténtalo de nuevo.", type: MessageType.vito, timestamp: DateTime.now()));
     }
   }
 
@@ -543,31 +541,15 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       batch.set(newHabitRef, {
         'name': habit['name'],
         'category': habit['category'] ?? 'otros',
-        'days': [1, 2, 3, 4, 5, 6, 7], // Por defecto, todos los días
-        'specificTime': {'hour': 8, 'minute': 0}, // Por defecto, 8 AM
-        'notifications': true,
-        'completions': [],
-        'createdAt': Timestamp.now(),
-        'streak': 0,
-        'longestStreak': 0,
+        'days': [1, 2, 3, 4, 5, 6, 7],
+        'specificTime': {'hour': 8, 'minute': 0},
+        'notifications': true, 'completions': [], 'createdAt': Timestamp.now(), 'streak': 0, 'longestStreak': 0,
       });
     }
 
     await batch.commit();
   }
-
-  void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
+  
   Future<Map<String, dynamic>> _getUserContext() async {
     if (user == null) return {};
 

@@ -94,4 +94,31 @@ afterEvaluate {
     }
     
     tasks.findByName("assembleRelease")?.finalizedBy("copyFlutterApkRelease")
+
+        tasks.register("copyFlutterAabRelease") {
+        doLast {
+            // 1. Ruta donde Gradle genera el .aab
+            val sourceAab = file("build/outputs/bundle/release/app-release.aab")
+            // 2. Ruta donde la herramienta de Flutter lo busca
+            val destDir = file("../../build/app/outputs/bundle/release")
+
+            if (sourceAab.exists()) {
+                // 3. Creamos la carpeta de destino si no existe
+                destDir.mkdirs()
+                // 4. Copiamos el archivo
+                sourceAab.copyTo(
+                    file("${destDir}/app-release.aab"),
+                    overwrite = true
+                )
+                println("AAB de Release copiado a: ${destDir}/app-release.aab")
+            } else {
+                // Un mensaje por si algo sale mal en el futuro
+                println("ADVERTENCIA: No se encontró app-release.aab en la ruta de origen.")
+            }
+        }
+    }
+
+    // 5. Le decimos a Gradle que ejecute nuestra tarea justo después de crear el bundle
+    tasks.findByName("bundleRelease")?.finalizedBy("copyFlutterAabRelease")
 }
+
