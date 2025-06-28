@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'dart:async';
@@ -14,36 +15,27 @@ import '../services/notification_service.dart';
 import '../services/firestore_service.dart';
 import '../services/vertex_ai_service.dart';
 
-// Tipos de mensajes en el chat
 enum MessageType { vito, user }
 
-// Modelo para un mensaje
 class ChatMessage {
   final String text;
   final MessageType type;
   final DateTime timestamp;
-  final bool isTyping;
-
-  ChatMessage({
-    required this.text,
-    required this.type,
-    required this.timestamp,
-    this.isTyping = false,
-  });
+  ChatMessage({required this.text, required this.type, required this.timestamp});
 }
 
-// Modelo para el hábito en construcción
+// --- HABIT BUILDER ACTUALIZADO ---
 class HabitBuilder {
+  String? type;
   String? name;
   String? category;
   List<int>? days;
   TimeOfDay? time;
-  int? duration;
-  double? amount;
+  int? targetValue; // Reemplaza duration y amount
   String? unit;
 
-  // Actualizamos el builder a partir de un mapa de datos
   void updateWith(Map<String, dynamic> data) {
+    if (data.containsKey('type')) type = data['type'];
     if (data.containsKey('name')) name = data['name'];
     if (data.containsKey('category')) category = data['category'];
     if (data.containsKey('days')) days = List<int>.from(data['days']);
@@ -51,17 +43,20 @@ class HabitBuilder {
       final timeParts = (data['time'] as String).split(':');
       time = TimeOfDay(hour: int.parse(timeParts[0]), minute: int.parse(timeParts[1]));
     }
-    if (data.containsKey('parameters')) {
-      final params = data['parameters'];
-      if (params.containsKey('duration')) duration = params['duration'];
-      if (params.containsKey('amount')) amount = params['amount']?.toDouble();
-      if (params.containsKey('unit')) unit = params['unit'];
-    }
+    // La IA ahora nos da targetValue y unit directamente.
+    if (data.containsKey('targetValue')) targetValue = (data['targetValue'] as num?)?.toInt();
+    if (data.containsKey('unit')) unit = data['unit'];
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'name': name, 'category': category, 'days': days, 'time': time != null ? '${time!.hour}:${time!.minute}' : null, 'duration': duration, 'amount': amount, 'unit': unit,
+      'type': type,
+      'name': name,
+      'category': category,
+      'days': days,
+      'time': time != null ? '${time!.hour.toString().padLeft(2, '0')}:${time!.minute.toString().padLeft(2, '0')}' : null,
+      'targetValue': targetValue,
+      'unit': unit,
     };
   }
 
@@ -69,22 +64,16 @@ class HabitBuilder {
 }
 
 class VitoChatHabitSheet extends StatefulWidget {
-  final Habit? habit; // Para modo edición
-  final String? initialMessage; // Para cuando viene de una sugerencia
+  final Habit? habit;
+  final String? initialMessage;
   
-  const VitoChatHabitSheet({
-    super.key,
-    this.habit,
-    this.initialMessage,
-  });
+  const VitoChatHabitSheet({super.key, this.habit, this.initialMessage});
 
   @override
   State<VitoChatHabitSheet> createState() => _VitoChatHabitSheetState();
 }
 
-class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
-    with TickerProviderStateMixin {
-  // Controllers
+class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProviderStateMixin {
   late AnimationController _slideController;
   late AnimationController _vitoAvatarController;
   late AnimationController _messageAnimationController;
@@ -92,13 +81,11 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   
-  // Estado del chat
   final List<ChatMessage> _messages = [];
   bool _isVitoTyping = false;
   final HabitBuilder _habitBuilder = HabitBuilder();
   bool _isProcessing = false;
   
-  // Info del usuario
   String _userName = '';
   
   bool get isEditMode => widget.habit != null;
@@ -106,22 +93,12 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
   @override
   void initState() {
     super.initState();
-    
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    )..forward();
-    
-    _vitoAvatarController = AnimationController(
-      duration: const Duration(seconds: 3),
-      vsync: this,
-    )..repeat(reverse: true);
-    
+    _slideController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))..forward();
+    _vitoAvatarController = AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat(reverse: true);
     _messageAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    
     _loadUserName();
     _initializeChat();
   }
@@ -261,6 +238,10 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
           _addVitoMessage(response['question']);
           break;
 
+        case 'delete_confirmation':
+          _showDeleteConfirmation();
+          break;
+
         case 'complete':
           final habitData = Map<String, dynamic>.from(response['data']);
           _habitBuilder.updateWith(habitData);
@@ -281,7 +262,6 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
   }
   
   void _confirmHabit() {
-    // Esta función ahora es más simple. Solo muestra los datos que la IA ya procesó.
     String summary = '¡Perfecto! He preparado tu hábito:\n\n';
     summary += '✅ **${_habitBuilder.name}**\n';
     
@@ -295,11 +275,12 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
       summary += '⏰ Hora: ${_habitBuilder.time!.format(context)}\n';
     }
     
-    if (_habitBuilder.duration != null) {
-      summary += '⏱️ Duración: ${_habitBuilder.duration} minutos\n';
+    // Nueva lógica para mostrar el objetivo
+    if (_habitBuilder.type == 'timed' && _habitBuilder.targetValue != null) {
+      summary += '⏱️ Duración: ${_habitBuilder.targetValue} minutos\n';
     }
-    if (_habitBuilder.amount != null) {
-      summary += '💵 Cantidad: ${_habitBuilder.amount?.toStringAsFixed(0)} ${_habitBuilder.unit ?? ''}\n';
+    if (_habitBuilder.type == 'quantifiable' && _habitBuilder.targetValue != null) {
+      summary += '🎯 Objetivo: ${_habitBuilder.targetValue} ${_habitBuilder.unit ?? ''}\n';
     }
     
     summary += '\n¿Te parece bien?';
@@ -312,40 +293,30 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
     _scrollToBottom();
   }
 
-
-  
+  // --- LÓGICA DE CREACIÓN CORREGIDA ---
   Future<void> _createHabitFromBuilder() async {
     setState(() => _isProcessing = true);
     
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception('Usuario no autenticado');
-      
-      // Agregar info adicional al nombre si existe
-      String habitName = _habitBuilder.name!;
-      if (_habitBuilder.duration != null) {
-        habitName += ' (${_habitBuilder.duration} min)';
-      } else if (_habitBuilder.amount != null) {
-        habitName += ' (${_habitBuilder.amount?.toStringAsFixed(0)} ${_habitBuilder.unit})';
-      }
-      
+
       final habit = {
-        'name': habitName,
+        'type': _habitBuilder.type ?? 'simple',
+        'name': _habitBuilder.name!,
         'category': _habitBuilder.category ?? 'otros',
         'days': _habitBuilder.days!..sort(),
         'specificTime': {
           'hour': _habitBuilder.time!.hour,
           'minute': _habitBuilder.time!.minute,
         },
+        'targetValue': _habitBuilder.targetValue,
+        'unit': _habitBuilder.unit,
         'notifications': true,
-        'completions': [],
+        'completions': {}, // Inicia como mapa vacío
         'createdAt': Timestamp.now(),
         'streak': 0,
         'longestStreak': 0,
-        // Campos adicionales si existen
-        if (_habitBuilder.duration != null) 'duration': _habitBuilder.duration,
-        if (_habitBuilder.amount != null) 'targetAmount': _habitBuilder.amount,
-        if (_habitBuilder.unit != null) 'unit': _habitBuilder.unit,
       };
       
       final docRef = await FirebaseFirestore.instance
@@ -354,34 +325,66 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
           .collection('habits')
           .add(habit);
       
-      // Programar notificaciones
       await NotificationService.scheduleHabitNotification(
         habitId: docRef.id,
-        habitName: habitName,
+        habitName: _habitBuilder.name!,
         time: _habitBuilder.time!,
         days: _habitBuilder.days!,
       );
       
       if (!mounted) return;
       
-      _addVitoMessage(
-        '¡Listo! 🎉\n\nTu hábito "${_habitBuilder.name}" ha sido creado exitosamente.\n\nTe enviaré recordatorios todos los días seleccionados a las ${_habitBuilder.time!.format(context)}.\n\n¡Vamos por ese cambio positivo! 💪',
-        withTyping: false,
-      );
+      _addVitoMessage('¡Listo! 🎉\n\nTu hábito "${_habitBuilder.name}" ha sido creado. ¡Vamos por ese cambio positivo! 💪', withTyping: false);
       
-      // Cerrar después de un delay
-      Future.delayed(const Duration(seconds: 5), () {
-        if (mounted) {
-          HapticFeedback.heavyImpact();
-          Navigator.pop(context);
-        }
+      Future.delayed(const Duration(seconds: 4), () {
+        if (mounted) Navigator.pop(context);
       });
       
     } catch (e) {
-      _addVitoMessage(
-        'Oh no 😔\n\nHubo un problema al crear tu hábito. ¿Podrías intentarlo de nuevo?',
-        withTyping: false,
+      _addVitoMessage('Oh no 😔\n\nHubo un problema al crear tu hábito. ¿Podrías intentarlo de nuevo?', withTyping: false);
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _updateHabitFromBuilder() async {
+    setState(() => _isProcessing = true);
+    
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null || widget.habit == null) throw Exception('Usuario o hábito no válido');
+
+      final updatedData = {
+        'name': _habitBuilder.name,
+        'category': _habitBuilder.category,
+        'days': _habitBuilder.days!..sort(),
+        'specificTime': {
+          'hour': _habitBuilder.time!.hour,
+          'minute': _habitBuilder.time!.minute,
+        },
+        // ... otros campos que el builder pueda modificar ...
+      };
+
+      await FirestoreService.updateHabit(widget.habit!.id, updatedData);
+
+      // Reprogramar notificaciones si el tiempo o los días cambiaron
+      await NotificationService.cancelHabitNotifications(widget.habit!.id, widget.habit!.days);
+      await NotificationService.scheduleHabitNotification(
+        habitId: widget.habit!.id,
+        habitName: _habitBuilder.name!,
+        time: _habitBuilder.time!,
+        days: _habitBuilder.days!,
       );
+      
+      if (!mounted) return;
+      
+      _addVitoMessage('¡Hábito actualizado! ✨\n\nLos cambios para "${_habitBuilder.name}" han sido guardados.', withTyping: false);
+      
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) Navigator.pop(context);
+      });
+
+    } catch (e) {
+      _addVitoMessage('Ups, algo salió mal al actualizar. ¿Lo intentamos de nuevo?', withTyping: false);
       setState(() => _isProcessing = false);
     }
   }
@@ -797,12 +800,19 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
                   ),
                 ],
               ),
-              child: Text(
-                message.text,
-                style: GoogleFonts.poppins(
-                  fontSize: 15,
-                  color: isVito ? const Color(0xFF1E293B) : Colors.white,
-                  height: 1.5,
+              child: MarkdownBody(
+                data: message.text,
+                selectable: true,
+                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                  p: GoogleFonts.poppins(
+                    fontSize: 15,
+                    color: isVito ? const Color(0xFF1E293B) : Colors.white,
+                    height: 1.5,
+                  ),
+                  strong: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    color: isVito ? const Color(0xFF1E293B) : Colors.white,
+                  ),
                 ),
               ),
             ),
@@ -937,22 +947,20 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet>
       child: Wrap(
         spacing: 12,
         children: [
+          // Botón inteligente que cambia según el modo
           _buildActionButton(
-            'Crear hábito',
-            Icons.check_circle,
+            isEditMode ? 'Guardar Cambios' : 'Crear Hábito',
+            isEditMode ? Icons.save_alt_rounded : Icons.check_circle,
             AppColors.success,
-            () => _createHabitFromBuilder(),
+            () => isEditMode ? _updateHabitFromBuilder() : _createHabitFromBuilder(),
           ),
           _buildActionButton(
             'Ajustar',
             Icons.edit,
             AppColors.warning,
             () {
-              // Remover los botones de la lista
               _messages.removeWhere((m) => m.text == 'ACTION_BUTTONS');
-              _addVitoMessage(
-                '¿Qué te gustaría cambiar? Puedes decirme cualquier ajuste que necesites 😊'
-              );
+              _addVitoMessage('Claro, ¿qué te gustaría cambiar?');
             },
           ),
         ],

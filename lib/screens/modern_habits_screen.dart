@@ -5,11 +5,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
+import 'dart:async'; 
 import 'dart:math' as math;
 
 import '../models/habit.dart';
 import '../theme/app_colors.dart';
-import '../screens/vito_chat_habit_screen.dart'; 
+import '../screens/vito_chat_habit_screen.dart';
+
+// --- NUEVO MODELO DE MOOD ---
+class Mood {
+  final String name;
+  final IconData icon;
+  final List<Color> gradient;
+  Mood({required this.name, required this.icon, required this.gradient});
+}
 
 // Modelo para la Sugerencia de la IA
 class SuggestedHabit {
@@ -32,7 +41,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   late AnimationController _pulseAnimationController;
   DateTime _selectedDate = DateTime.now();
 
-  // Estados para la lógica del Coach AI
   bool _isLoadingSuggestions = false;
   List<SuggestedHabit> _suggestedHabits = [];
   bool _showCoachWelcome = false;
@@ -40,12 +48,24 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   Stream<QuerySnapshot>? _allHabitsStream;
   final User? user = FirebaseAuth.instance.currentUser;
 
-  // Estado para el tracker de ánimo
-  String? _currentMood;
+  // --- LÓGICA DE MOOD TRACKER ACTUALIZADA ---
+  List<Map<String, dynamic>> _todaysMoods = [];
+  // Nueva lista de moods con iconos y colores mejorados
+  final List<Mood> moods = [
+    Mood(name: 'Feliz', icon: Icons.sentiment_very_satisfied_rounded, gradient: [const Color(0xFF4ADE80), const Color(0xFF22C55E)]),
+    Mood(name: 'Normal', icon: Icons.sentiment_satisfied_rounded, gradient: [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]),
+    Mood(name: 'Triste', icon: Icons.sentiment_very_dissatisfied_rounded, gradient: [const Color(0xFF94A3B8), const Color(0xFF64748B)]),
+    Mood(name: 'Enojado', icon: Icons.local_fire_department_rounded, gradient: [const Color(0xFFF87171), const Color(0xFFEF4444)]),
+    Mood(name: 'Estresado', icon: Icons.storm_rounded, gradient: [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]),
+    Mood(name: 'Motivado', icon: Icons.rocket_launch_rounded, gradient: [const Color(0xFFA78BFA), const Color(0xFF8B5CF6)]),
+  ];
 
-  // Controllers para animaciones
   late ScrollController _scrollController;
   double _scrollOffset = 0.0;
+
+  Timer? _habitTimer;
+  String? _activeTimerHabitId;
+  int _timerSecondsRemaining = 0;
 
   @override
   void initState() {
@@ -132,10 +152,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     showModalBottomSheet(
       context: context, 
       isScrollControlled: true, 
-      backgroundColor: Colors.transparent, 
-      // --- CORRECCIÓN FINAL AQUÍ ---
+      backgroundColor: Colors.transparent,
       builder: (context) => VitoChatHabitSheet(
-        // Le pasamos el nombre del hábito como el primer mensaje del usuario
         initialMessage: habit.name,
       ),
     ).then((_) {
@@ -145,41 +163,46 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     });
   }
 
+  // --- LÓGICA DE MOOD TRACKER ACTUALIZADA ---
   Future<void> _loadTodaysMood() async {
     if (user == null) return;
-    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final doc = await FirebaseFirestore.instance
-      .collection('users').doc(user!.uid)
-      .collection('mood_tracker').doc(todayStr).get();
-    
-    if (doc.exists && mounted) {
+    final today = DateTime.now();
+    final startOfDay = DateTime(today.year, today.month, today.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    final snapshot = await FirebaseFirestore.instance
+      .collection('users').doc(user!.uid).collection('moods')
+      .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+      .where('timestamp', isLessThan: endOfDay)
+      .orderBy('timestamp', descending: true)
+      .get();
+
+    if (mounted) {
       setState(() {
-        _currentMood = doc.data()?['mood'];
+        _todaysMoods = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
       });
     }
   }
 
   Future<void> _saveMood(String mood) async {
     if (user == null) return;
-    HapticFeedback.lightImpact();
-    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    
-    if (_currentMood == mood) {
-      await FirebaseFirestore.instance
-        .collection('users').doc(user!.uid)
-        .collection('mood_tracker').doc(todayStr).delete();
-      if(mounted) setState(() => _currentMood = null);
-    } else {
-      await FirebaseFirestore.instance
-        .collection('users').doc(user!.uid)
-        .collection('mood_tracker').doc(todayStr)
-        .set({'mood': mood, 'timestamp': FieldValue.serverTimestamp()});
-    
-      if (mounted) {
-        setState(() => _currentMood = mood);
-        _showSuccessSnackBar('¡Ánimo registrado!');
+
+    // Lógica para limitar el registro cada 3 horas
+    if (_todaysMoods.isNotEmpty) {
+      final lastMoodTime = (_todaysMoods.first['timestamp'] as Timestamp).toDate();
+      if (DateTime.now().difference(lastMoodTime).inHours < 3) {
+        _showSuccessSnackBar('Puedes registrar tu ánimo de nuevo en un rato.');
+        return;
       }
     }
+
+    HapticFeedback.lightImpact();
+    await FirebaseFirestore.instance
+      .collection('users').doc(user!.uid).collection('moods')
+      .add({'mood': mood, 'timestamp': Timestamp.now()});
+    
+    _loadTodaysMood(); // Recargar los moods para actualizar la UI
+    _showSuccessSnackBar('¡Ánimo registrado!');
   }
 
   void _showSuccessSnackBar(String message) {
@@ -205,6 +228,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   @override
   void dispose() {
     _animationController.dispose();
+    _habitTimer?.cancel();
     _floatingAnimationController.dispose();
     _pulseAnimationController.dispose();
     _scrollController.dispose();
@@ -221,7 +245,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       backgroundColor: const Color(0xFFF8FAFC),
       body: Stack(
         children: [
-          // Fondo con gradiente sutil
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -235,19 +258,13 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
               ),
             ),
           ),
-          // Formas decorativas animadas
           ..._buildFloatingShapes(),
           
           StreamBuilder<QuerySnapshot>(
             stream: _allHabitsStream,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                return const Center(
-                  child: CircularProgressIndicator(
-                    color: AppColors.primary,
-                    strokeWidth: 2,
-                  ),
-                );
+                return const Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2));
               }
               if (snapshot.hasError) {
                 return Center(child: Text("Error: ${snapshot.error}"));
@@ -268,64 +285,87 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                     ),
                   ),
                   if (_isLoadingSuggestions)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.primary.withOpacity(0.1),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Vito está pensando...',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                    _buildLoadingSuggestionsIndicator(),
                   if (_suggestedHabits.isNotEmpty)
                     _buildPremiumSuggestionsSection(),
                   _buildPremiumHabitsListHeader(),
-                  _buildHabitIdeaSection(),
+                  // El _buildHabitIdeaSection() se elimina de aquí
                   _buildPremiumHabitsList(allHabits),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: 100),
-                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 120)), // Más espacio para el FAB
                 ],
               );
             },
           ),
+          // --- NUEVO CHIP DE IDEAS FLOTANTE ---
+          _buildIdeaChip(),
         ],
       ),
       floatingActionButton: _buildFloatingActionButton(),
+    );
+  }
+  
+  // --- NUEVO WIDGET PARA EL CHIP DE IDEAS ---
+  Widget _buildIdeaChip() {
+    return Positioned(
+      bottom: 95, // Justo encima del FAB
+      right: 20,
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          final categories = ['Salud', 'Mente', 'Trabajo', 'Creativo', 'Finanzas'];
+          final randomCategory = categories[math.Random().nextInt(categories.length)];
+          _getAiHabitSuggestions(randomCategory);
+        },
+        child: Material(
+          color: Colors.white,
+          elevation: 6,
+          shadowColor: AppColors.primary.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(30),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.lightbulb_outline, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Ideas',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  SliverToBoxAdapter _buildLoadingSuggestionsIndicator() {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
+                const SizedBox(width: 12),
+                Text('Vito está pensando...', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.primary)),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -419,28 +459,13 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
 
   // Mood Tracker Premium
   SliverToBoxAdapter _buildPremiumMoodTracker() {
-    final moods = [
-      {'name': 'Feliz', 'icon': Icons.sentiment_very_satisfied, 'color': const Color(0xFF4ADE80), 'gradient': [const Color(0xFF4ADE80), const Color(0xFF22C55E)]},
-      {'name': 'Normal', 'icon': Icons.sentiment_satisfied, 'color': const Color(0xFF60A5FA), 'gradient': [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]},
-      {'name': 'Triste', 'icon': Icons.sentiment_dissatisfied, 'color': const Color(0xFF94A3B8), 'gradient': [const Color(0xFF94A3B8), const Color(0xFF64748B)]},
-      {'name': 'Estresado', 'icon': Icons.bolt, 'color': const Color(0xFFFBBF24), 'gradient': [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]},
-      {'name': 'Motivado', 'icon': Icons.local_fire_department, 'color': const Color(0xFFF87171), 'gradient': [const Color(0xFFF87171), const Color(0xFFEF4444)]},
-    ];
+    final lastMoodName = _todaysMoods.isEmpty ? null : _todaysMoods.first['mood'];
 
     return SliverToBoxAdapter(
       child: FadeTransition(
-        opacity: CurvedAnimation(
-          parent: _animationController,
-          curve: const Interval(0.2, 1.0, curve: Curves.easeOut),
-        ),
+        opacity: CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0)),
         child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.1),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(
-            parent: _animationController,
-            curve: const Interval(0.2, 1.0, curve: Curves.easeOut),
-          )),
+          position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0))),
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             child: ClipRRect(
@@ -450,26 +475,10 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                 child: Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.white.withOpacity(0.9),
-                        Colors.white.withOpacity(0.8),
-                      ],
-                    ),
+                    gradient: LinearGradient(colors: [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                     borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.3),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 30,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
+                    border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 30, offset: const Offset(0, 10))],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -478,36 +487,16 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                         children: [
                           Container(
                             padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Icon(
-                              Icons.favorite_rounded,
-                              color: AppColors.primary,
-                              size: 24,
-                            ),
+                            decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+                            child: Icon(Icons.favorite_rounded, color: AppColors.primary, size: 24),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  '¿Cómo te sientes?',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w600,
-                                    color: const Color(0xFF1E293B),
-                                  ),
-                                ),
-                                Text(
-                                  'Registra tu estado de ánimo',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 12,
-                                    color: const Color(0xFF64748B),
-                                  ),
-                                ),
+                                Text('¿Cómo te sientes?', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                                Text('Registra tu estado de ánimo', style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFF64748B))),
                               ],
                             ),
                           ),
@@ -516,62 +505,43 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                       const SizedBox(height: 20),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: moods.map((moodData) {
-                          final moodName = moodData['name'] as String;
-                          final moodIcon = moodData['icon'] as IconData;
-                          final gradientColors = moodData['gradient'] as List<Color>;
-                          final isSelected = _currentMood == moodName;
+                        children: moods.map((mood) {
+                          final isSelected = lastMoodName == mood.name;
 
                           return GestureDetector(
-                            onTap: () => _saveMood(moodName),
-                            child: AnimatedScale(
-                              scale: isSelected ? 1.1 : 1.0,
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOutBack,
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
-                                padding: EdgeInsets.all(isSelected ? 14 : 12),
-                                decoration: BoxDecoration(
-                                  gradient: isSelected 
-                                    ? LinearGradient(
-                                        colors: gradientColors,
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      )
-                                    : null,
-                                  color: isSelected ? null : Colors.grey.shade100,
-                                  shape: BoxShape.circle,
-                                  boxShadow: isSelected ? [
-                                    BoxShadow(
-                                      color: gradientColors.first.withOpacity(0.4),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 8),
+                            onTap: () => _saveMood(mood.name),
+                            child: Column(
+                              children: [
+                                AnimatedScale(
+                                  scale: isSelected ? 1.15 : 1.0,
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeOutBack,
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    padding: EdgeInsets.all(isSelected ? 14 : 12),
+                                    decoration: BoxDecoration(
+                                      gradient: isSelected ? LinearGradient(colors: mood.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
+                                      color: isSelected ? null : Colors.grey.shade100,
+                                      shape: BoxShape.circle,
+                                      boxShadow: isSelected ? [BoxShadow(color: mood.gradient.first.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 8))] : [],
                                     ),
-                                  ] : [],
+                                    child: Icon(mood.icon, color: isSelected ? Colors.white : Colors.grey.shade600, size: 26),
+                                  ),
                                 ),
-                                child: Icon(
-                                  moodIcon,
-                                  color: isSelected ? Colors.white : Colors.grey.shade600,
-                                  size: 26,
+                                const SizedBox(height: 8),
+                                AnimatedOpacity(
+                                  opacity: isSelected ? 1.0 : 0.0,
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Text(
+                                    mood.name,
+                                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: mood.gradient.last),
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                           );
                         }).toList(),
                       ),
-                      if (_currentMood != null) ...[
-                        const SizedBox(height: 12),
-                        Center(
-                          child: Text(
-                            _currentMood!,
-                            style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -582,6 +552,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       ),
     );
   }
+
 
   Widget _buildCoachWelcomeView() {
     final categories = [
@@ -1149,28 +1120,98 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     );
   }
 
+  // TEMPORIZADOR
+
+  void _startTimer(String habitId, int durationMinutes) {
+    _habitTimer?.cancel(); // Cancela cualquier timer anterior
+
+    setState(() {
+      _activeTimerHabitId = habitId;
+      _timerSecondsRemaining = durationMinutes * 60;
+    });
+
+    _habitTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_timerSecondsRemaining > 0) {
+        setState(() {
+          _timerSecondsRemaining--;
+        });
+      } else {
+        // El temporizador terminó
+        _habitTimer?.cancel();
+        _completeTimedHabit(_activeTimerHabitId!);
+        setState(() {
+          _activeTimerHabitId = null;
+        });
+      }
+    });
+  }
+
+  void _stopTimer() {
+    _habitTimer?.cancel();
+    setState(() {
+      _activeTimerHabitId = null;
+      _timerSecondsRemaining = 0;
+    });
+  }
+
+  // Y una función para marcar el hábito como completado
+  Future<void> _completeTimedHabit(String habitId) async {
+    if (user == null) return;
+    HapticFeedback.heavyImpact();
+    
+    final todayKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final habitRef = FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').doc(habitId);
+    
+    await habitRef.update({
+      'completions.$todayKey': {
+        'progress': 1, // Para hábitos de tiempo, el progreso puede ser 1 (completado)
+        'completed': true,
+      }
+    });
+    _showSuccessSnackBar('¡Hábito completado! 💪');
+  }
   
   int _getStreakFromHabitsData(List<QueryDocumentSnapshot> habits) {
     if (habits.isEmpty) return 0;
+    
     final Set<DateTime> allCompletionDates = {};
     final Set<int> allScheduledWeekdays = {};
+    
     for (var habitDoc in habits) {
       final data = habitDoc.data() as Map<String, dynamic>;
-      final completions = List<Timestamp>.from(data['completions'] ?? []);
-      final days = List<int>.from(data['days'] ?? []);
-      for (var ts in completions) {
-        final date = ts.toDate();
-        allCompletionDates.add(DateTime(date.year, date.month, date.day));
+      
+      // --- LÓGICA CORREGIDA ---
+      // Leemos el mapa de completions
+      final completionsMap = data['completions'] as Map<String, dynamic>? ?? {};
+      // Iteramos sobre las entradas del mapa
+      for (var entry in completionsMap.entries) {
+        final completionData = entry.value as Map<String, dynamic>;
+        // Si el día fue marcado como completo, añadimos la fecha a nuestro set
+        if (completionData['completed'] == true) {
+          try {
+            final date = DateFormat('yyyy-MM-dd').parse(entry.key);
+            allCompletionDates.add(date);
+          } catch (e) {
+            // Ignorar claves de fecha con formato incorrecto
+          }
+        }
       }
+      
+      final days = List<int>.from(data['days'] ?? []);
       allScheduledWeekdays.addAll(days);
     }
+
     if (allCompletionDates.isEmpty || allScheduledWeekdays.isEmpty) return 0;
+
+    // El resto de la lógica de cálculo de racha funciona igual que antes
     int streak = 0;
     var now = DateTime.now();
     var checkDate = DateTime(now.year, now.month, now.day);
+
     if (allScheduledWeekdays.contains(checkDate.weekday) && !allCompletionDates.contains(checkDate)) {
       checkDate = checkDate.subtract(const Duration(days: 1));
     }
+
     for (int i = 0; i < 366; i++) {
       if (allScheduledWeekdays.contains(checkDate.weekday)) {
         if (allCompletionDates.contains(checkDate)) {
@@ -1187,17 +1228,24 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   Widget _buildPremiumProgressCard(List<QueryDocumentSnapshot> allHabits) {
     int totalHabitsForSelectedDay = 0;
     int completedOnSelectedDay = 0;
+    
     for (var habit in allHabits) {
       final data = habit.data() as Map<String, dynamic>;
       final days = List<int>.from(data['days'] ?? []);
+      
       if (days.contains(_selectedDate.weekday)) {
         totalHabitsForSelectedDay++;
-        final completions = List<Timestamp>.from(data['completions'] ?? []);
-        if (_wasCompletedOnDate(_selectedDate, completions)) {
+        
+        // --- LÓGICA CORREGIDA ---
+        final completionsMap = data['completions'] as Map<String, dynamic>? ?? {};
+        final dateKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+        
+        if (completionsMap[dateKey]?['completed'] == true) {
           completedOnSelectedDay++;
         }
       }
     }
+
     final progress = totalHabitsForSelectedDay > 0 ? completedOnSelectedDay / totalHabitsForSelectedDay : 0.0;
     final streak = _getStreakFromHabitsData(allHabits);
 
@@ -1397,86 +1445,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
 
-  Widget _buildHabitIdeaSection() {
-    return SliverToBoxAdapter(
-      child: Padding(
-        // Un poco más de espacio vertical para que respire mejor
-        padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
-        child: GestureDetector(
-          onTap: () {
-            HapticFeedback.lightImpact();
-            // Para mantenerlo simple, elegimos una categoría al azar para la IA.
-            // El usuario no lo nota, pero nos da sugerencias variadas.
-            final categories = ['Salud', 'Mente', 'Trabajo', 'Creativo', 'Finanzas'];
-            final randomCategory = categories[math.Random().nextInt(categories.length)];
-            _getAiHabitSuggestions(randomCategory);
-          },
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.primary.withOpacity(0.05),
-                  AppColors.secondary.withOpacity(0.05),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.08),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.lightbulb_outline_rounded,
-                    color: AppColors.primary,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Ideas para Hábitos",
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF1E293B),
-                        ),
-                      ),
-                      Text(
-                        "Toca para recibir una sugerencia de la IA",
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          color: const Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.arrow_forward_ios_rounded, color: Colors.grey, size: 18),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
   SliverToBoxAdapter _buildPremiumHabitsListHeader() {
     return SliverToBoxAdapter(
       child: Padding(
@@ -1593,19 +1561,40 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   Widget _buildPremiumHabitCard(String habitId, Map<String, dynamic> data) {
+    final habitType = data['type'] as String? ?? 'simple';
+    
+    switch (habitType) {
+      case 'quantifiable':
+        return _buildQuantifiableHabitCard(habitId, data);
+      case 'timed':
+        return _buildTimedHabitCard(habitId, data);
+      case 'simple':
+      default:
+        return _buildSimpleHabitCard(habitId, data);
+    }
+  }
+
+  // 2. AÑADE estas tres nuevas funciones a tu clase.
+
+  // --- TARJETA PARA HÁBITOS SIMPLES (SÍ/NO) ---
+  // Esta es básicamente tu tarjeta original, pero adaptada a la nueva estructura de datos.
+  Widget _buildSimpleHabitCard(String habitId, Map<String, dynamic> data) {
     final name = data['name'] ?? 'Hábito sin nombre';
     final category = data['category'] ?? 'health';
-    final completions = List<Timestamp>.from(data['completions'] ?? []);
-    final isCompleted = _wasCompletedOnDate(_selectedDate, completions);
     final timeData = data['specificTime'] as Map<String, dynamic>?;
     final color = AppColors.getCategoryColor(category);
+
+    // Lógica de completado con el nuevo mapa de 'completions'
+    final completionsMap = data['completions'] as Map<String, dynamic>? ?? {};
+    final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    final isCompleted = completionsMap[todayKey]?['completed'] as bool? ?? false;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => _toggleHabit(habitId, completions),
+          onTap: () => _toggleSimpleHabit(habitId, isCompleted), // Llama a la nueva función de toggle
           onLongPress: () {
             HapticFeedback.mediumImpact();
             _showEditHabitBottomSheet(habitId, data);
@@ -1614,19 +1603,12 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           child: Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: isCompleted 
-                ? color.withOpacity(0.05) 
-                : Colors.white,
+              color: isCompleted ? color.withOpacity(0.05) : Colors.white,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!,
-                width: 1.5,
-              ),
+              border: Border.all(color: isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!, width: 1.5),
               boxShadow: [
                 BoxShadow(
-                  color: isCompleted 
-                    ? color.withOpacity(0.15) 
-                    : Colors.black.withOpacity(0.03),
+                  color: isCompleted ? color.withOpacity(0.15) : Colors.black.withOpacity(0.03),
                   blurRadius: isCompleted ? 20 : 15,
                   offset: const Offset(0, 8),
                 ),
@@ -1634,29 +1616,25 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
             ),
             child: Row(
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutBack,
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: isCompleted 
-                      ? LinearGradient(
-                          colors: [color, color.withOpacity(0.8)],
-                        )
-                      : null,
-                    color: isCompleted ? null : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isCompleted ? color : Colors.grey[300]!,
-                      width: 2,
+                // Checkbox animado
+                GestureDetector(
+                  onTap: () => _toggleSimpleHabit(habitId, isCompleted),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutBack,
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: isCompleted ? LinearGradient(colors: [color, color.withOpacity(0.8)]) : null,
+                      color: isCompleted ? null : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: isCompleted ? Colors.transparent : Colors.grey[300]!, width: 2),
                     ),
+                    child: isCompleted ? const Icon(Icons.check, color: Colors.white, size: 22) : null,
                   ),
-                  child: isCompleted 
-                    ? const Icon(Icons.check, color: Colors.white, size: 22)
-                    : null,
                 ),
                 const SizedBox(width: 16),
+                // Detalles del hábito
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1676,19 +1654,9 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(
-                              Icons.access_time,
-                              size: 14,
-                              color: Colors.grey[500],
-                            ),
+                            Icon(Icons.access_time, size: 14, color: Colors.grey[500]),
                             const SizedBox(width: 4),
-                            Text(
-                              _formatTime(timeData),
-                              style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                color: Colors.grey[600],
-                              ),
-                            ),
+                            Text(_formatTime(timeData), style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600])),
                           ],
                         ),
                       ],
@@ -1698,15 +1666,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                 if (isCompleted)
                   Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.celebration,
-                      color: color,
-                      size: 20,
-                    ),
+                    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: Icon(Icons.celebration, color: color, size: 20),
                   ),
               ],
             ),
@@ -1714,6 +1675,207 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
         ),
       ),
     );
+  }
+
+  // --- TARJETA PARA HÁBITOS CUANTIFICABLES (CONTADOR) ---
+  Widget _buildQuantifiableHabitCard(String habitId, Map<String, dynamic> data) {
+    final name = data['name'] ?? 'Sin nombre';
+    final target = data['targetValue'] as int? ?? 1;
+    final unit = data['unit'] as String? ?? '';
+    final category = data['category'] ?? 'health';
+    final color = AppColors.getCategoryColor(category);
+
+    final completionsMap = data['completions'] as Map<String, dynamic>? ?? {};
+    final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    final currentProgress = completionsMap[todayKey]?['progress'] as int? ?? 0;
+    final isCompleted = currentProgress >= target;
+    final progressPercent = target > 0 ? (currentProgress / target) : 0.0;
+
+    Future<void> updateProgress(int change) async {
+      if (!_isSameDay(_selectedDate, DateTime.now())) {
+        // Muestra un mensaje de que solo se puede editar hoy
+        return;
+      }
+      final newProgress = (currentProgress + change).clamp(0, target);
+      if (newProgress == currentProgress) return;
+      
+      await FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').doc(habitId).update({
+        'completions.$todayKey': {
+          'progress': newProgress,
+          'completed': newProgress >= target,
+        }
+      });
+      HapticFeedback.lightImpact();
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isCompleted ? color.withOpacity(0.05) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: isCompleted ? color.withOpacity(0.15) : Colors.black.withOpacity(0.03),
+            blurRadius: 15, offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
+                ),
+              ),
+              Text(
+                '$currentProgress / $target ${unit.isNotEmpty ? unit : ''}',
+                style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: progressPercent,
+              minHeight: 10,
+              backgroundColor: color.withOpacity(0.15),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              IconButton(
+                onPressed: () => updateProgress(-1),
+                icon: Icon(Icons.remove_circle_outline, color: Colors.grey[400]),
+              ),
+              IconButton(
+                iconSize: 36,
+                onPressed: () => updateProgress(1),
+                icon: Icon(Icons.add_circle, color: isCompleted ? Colors.grey[400] : color),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  // --- TARJETA PARA HÁBITOS CON TEMPORIZADOR ---
+  Widget _buildTimedHabitCard(String habitId, Map<String, dynamic> data) {
+    final name = data['name'] ?? 'Sin nombre';
+    final durationMinutes = data['targetValue'] as int? ?? 1;
+    final category = data['category'] ?? 'health';
+    final color = AppColors.getCategoryColor(category);
+    
+    final completionsMap = data['completions'] as Map<String, dynamic>? ?? {};
+    final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    final isCompleted = completionsMap[todayKey]?['completed'] as bool? ?? false;
+    
+    // Lógica para saber si este es el hábito con el timer activo
+    final bool isTimerActive = _activeTimerHabitId == habitId;
+    
+    // Formatear el tiempo restante
+    final minutesStr = (_timerSecondsRemaining ~/ 60).toString().padLeft(2, '0');
+    final secondsStr = (_timerSecondsRemaining % 60).toString().padLeft(2, '0');
+    final timerText = '$minutesStr:$secondsStr';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isTimerActive ? color.withOpacity(0.1) : (isCompleted ? color.withOpacity(0.05) : Colors.white),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: isTimerActive ? color.withOpacity(0.5) : (isCompleted ? color.withOpacity(0.3) : Colors.grey[200]!), width: 1.5),
+        boxShadow: [BoxShadow(color: (isTimerActive || isCompleted) ? color.withOpacity(0.15) : Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 8))],
+      ),
+      child: Row(
+        children: [
+          Icon(isCompleted ? Icons.check_circle_rounded : Icons.timer_outlined, color: color, size: 28),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600)),
+                // Muestra la duración o el tiempo restante
+                if (isTimerActive)
+                  Text(timerText, style: GoogleFonts.poppins(color: color, fontWeight: FontWeight.bold, fontSize: 18))
+                else
+                  Text('$durationMinutes minutos', style: GoogleFonts.poppins(color: Colors.grey[600])),
+              ],
+            ),
+          ),
+          // Botón dinámico de Play/Pausa/Celebración
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: color,
+              shape: const CircleBorder(),
+              padding: const EdgeInsets.all(16),
+              elevation: 5, shadowColor: color.withOpacity(0.5)
+            ),
+            onPressed: isCompleted ? null : () {
+              if (isTimerActive) {
+                _stopTimer(); // Si el timer está activo, el botón lo detiene
+              } else {
+                HapticFeedback.heavyImpact();
+                _startTimer(habitId, durationMinutes); // Si no, lo inicia
+              }
+            },
+            child: Icon(
+              isCompleted ? Icons.celebration_rounded : (isTimerActive ? Icons.stop_rounded : Icons.play_arrow_rounded),
+              color: Colors.white
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  // 3. AÑADE esta nueva función de toggle para los hábitos simples.
+  // Reemplaza la lógica de tu `_toggleHabit` actual.
+  Future<void> _toggleSimpleHabit(String habitId, bool isCurrentlyCompleted) async {
+    if (!_isSameDay(_selectedDate, DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(children: [Icon(Icons.info_outline, color: Colors.white), SizedBox(width: 12), Expanded(child: Text('Solo puedes modificar los hábitos de hoy', style: TextStyle(fontWeight: FontWeight.w500)))]),
+          backgroundColor: AppColors.warning,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+    
+    if (user == null) return;
+    HapticFeedback.lightImpact();
+
+    final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    final habitRef = FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').doc(habitId);
+        
+    await habitRef.update({
+      'completions.$todayKey': {
+        'progress': isCurrentlyCompleted ? 0 : 1,
+        'completed': !isCurrentlyCompleted,
+      }
+    });
+
+    if (!isCurrentlyCompleted) {
+      if (mounted) {
+        HapticFeedback.heavyImpact();
+        _showSuccessSnackBar('¡Hábito completado! 🎉');
+      }
+    }
   }
 
   void _showAddHabitBottomSheet() {
@@ -1727,20 +1889,29 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   void _showEditHabitBottomSheet(String habitId, Map<String, dynamic> data) {
+    // ADAPTADO A LA NUEVA ESTRUCTURA DE HABIT
     final timeData = data['specificTime'] as Map<String, dynamic>? ?? {'hour': 12, 'minute': 0};
     final time = TimeOfDay(hour: timeData['hour'], minute: timeData['minute']);
+    
+    // Creamos el objeto Habit completo, ahora incluyendo todos los campos requeridos
     final habit = Habit(
       id: habitId,
       name: data['name'] ?? 'Sin nombre',
       category: data['category'] ?? 'health',
       days: List<int>.from(data['days'] ?? []),
-      completions: List<Timestamp>.from(data['completions'] ?? []),
       specificTime: time,
       notifications: data['notifications'] ?? false,
       createdAt: data['createdAt'] as Timestamp? ?? Timestamp.now(),
       currentStreak: data['currentStreak'] as int? ?? 0,
       longestStreak: data['longestStreak'] as int? ?? 0,
+      
+      // --- LÍNEAS CORREGIDAS Y AÑADIDAS ---
+      type: data['type'] as String? ?? 'simple', // Leemos el tipo desde los datos
+      completions: Map<String, dynamic>.from(data['completions'] ?? {}), // Leemos el mapa de completions
+      targetValue: data['targetValue'] as int?, // Leemos el valor objetivo
+      unit: data['unit'] as String?, // Leemos la unidad
     );
+    
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1749,70 +1920,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     );
   }
 
-  Future<void> _toggleHabit(String habitId, List<Timestamp> completions) async {
-    if (!_isSameDay(_selectedDate, DateTime.now())) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.info_outline, color: Colors.white),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'Solo puedes modificar los hábitos de hoy',
-                  style: TextStyle(fontWeight: FontWeight.w500),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.warning,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-      return;
-    }
-    
-    if (user == null) return;
-    HapticFeedback.lightImpact();
-    
-    final selectedTimestamp = Timestamp.fromDate(
-      DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)
-    );
-    final isCompleted = _wasCompletedOnDate(_selectedDate, completions);
-    final habitRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user!.uid)
-        .collection('habits')
-        .doc(habitId);
-        
-    if (isCompleted) {
-      final completionToRemove = completions.firstWhere(
-        (ts) => _isSameDay(ts.toDate(), _selectedDate)
-      );
-      await habitRef.update({
-        'completions': FieldValue.arrayRemove([completionToRemove])
-      });
-    } else {
-      await habitRef.update({
-        'completions': FieldValue.arrayUnion([selectedTimestamp])
-      });
-      if (mounted) {
-        HapticFeedback.heavyImpact();
-        _showSuccessSnackBar('¡Hábito completado! 🎉');
-      }
-    }
-  }
-
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  bool _wasCompletedOnDate(DateTime date, List<Timestamp> completions) {
-    return completions.any((ts) => _isSameDay(ts.toDate(), date));
   }
 
   String _formatTime(Map<String, dynamic> timeData) {
@@ -1847,3 +1956,4 @@ class _PatternPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+

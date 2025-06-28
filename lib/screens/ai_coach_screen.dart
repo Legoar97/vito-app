@@ -6,11 +6,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'dart:ui';
 import 'dart:math' as math;
-import 'package:intl/intl.dart';
 
 import '../theme/app_colors.dart';
 import '../services/vertex_ai_service.dart';
-import '../models/chat_message.dart'; 
+import '../models/chat_message.dart';
+import '../services/stats_processing_service.dart';
 
 class AICoachScreen extends StatefulWidget {
   const AICoachScreen({super.key});
@@ -52,16 +52,15 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       vsync: this,
     );
     
-    _loadUserName();
-    _addWelcomeMessage();
+    _loadUserNameAndWelcome();
   }
   
-  void _loadUserName() {
+  void _loadUserNameAndWelcome() async {
     if (user != null) {
-      setState(() {
-        _userName = user!.displayName?.split(' ').first ?? 'amigo';
-      });
+      final displayName = user!.displayName ?? '';
+      _userName = displayName.isNotEmpty ? displayName.split(' ').first : 'amigo';
     }
+    _addWelcomeMessage();
   }
   
   void _addWelcomeMessage() {
@@ -80,6 +79,8 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
 
   @override
   void dispose() {
+    _summarizeAndSaveConversation(); // Guarda el resumen al salir.
+    
     _fadeController.dispose();
     _vitoAnimationController.dispose();
     _typingAnimationController.dispose();
@@ -87,6 +88,26 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
     _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _summarizeAndSaveConversation() async {
+    if (_messages.length > 4 && user != null) {
+      try {
+        final summary = await VertexAIService.summarizeConversation(
+          conversationHistory: _messages,
+        );
+        
+        if (summary.isNotEmpty) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user!.uid)
+              .update({'lastVitoSummary': summary});
+          print('Resumen de conversación guardado: $summary');
+        }
+      } catch (e) {
+        print('Error al guardar el resumen de la conversación: $e');
+      }
+    }
   }
 
   void _scrollToBottom() {
@@ -134,7 +155,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
       ),
       child: Row(
         children: [
-          // Avatar animado de Vito
           AnimatedBuilder(
             animation: _vitoAnimationController,
             builder: (context, child) {
@@ -168,8 +188,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
             },
           ),
           const SizedBox(width: 16),
-          
-          // Título y estado
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -212,8 +230,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
               ],
             ),
           ),
-          
-          // Botón de información
           IconButton(
             onPressed: () => _showInfoDialog(),
             icon: Container(
@@ -588,7 +604,6 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
               ),
               const SizedBox(width: 12),
               
-              // Botón de enviar
               AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 child: Material(
@@ -764,7 +779,7 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
     if (messageText.isEmpty || _isTyping) return;
 
     HapticFeedback.lightImpact();
-    
+
     final userMessage = ChatMessage(
       text: messageText,
       type: MessageType.user,
@@ -779,96 +794,105 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
     _messageController.clear();
     _scrollToBottom();
 
+    String responseText;
     try {
-      final userContext = await _getUserContext();
-      final conversationForAPI = _messages.toList();
-      
-      final response = await VertexAIService.getHabitAdvice(
-        conversationHistory: conversationForAPI,
-        userContext: userContext,
+      final classification = await VertexAIService.classifyIntentAndSentiment(
+        userMessage: messageText,
+        conversationHistory: _messages,
       );
-      
-      if (mounted) {
-        setState(() {
-          _isTyping = false;
-          _messages.add(ChatMessage(
-            text: response,
-            type: MessageType.vito,
-            timestamp: DateTime.now(),
-          ));
-        });
-        _scrollToBottom();
+
+      final intent = classification['intent'] ?? 'general_chat';
+      final sentiment = classification['sentiment'] ?? 'neutral';
+
+      switch (intent) {
+        // --- NUEVO CASO PARA MANEJAR SALUDOS ---
+        case 'greeting':
+          // Si el usuario pregunta "¿cómo estás?", respondemos directamente.
+          if (messageText.toLowerCase().contains('cómo estás')) {
+            responseText = '¡Gracias por preguntar, Ivan! 😊 Estoy listo y con toda la energía para ayudarte. ¿Cómo te encuentras tú realmente hoy?';
+          } else {
+            // Para un simple "Hola", respondemos sin asumir nada.
+            responseText = '¡Hola de nuevo, Ivan! ¿Hay algo en lo que pueda ayudarte o alguna idea que te ronde la cabeza hoy?';
+          }
+          break;
+        case 'crisis':
+          responseText = '''
+Comprendo que estás en un momento extremadamente difícil. Es muy valiente de tu parte buscar ayuda.
+
+**Por favor, debes saber que no soy un profesional de la salud. Lo más importante ahora es que hables con alguien que sí pueda ofrecerte el apoyo que necesitas.**
+
+Contacta a una línea de prevención de crisis o a un servicio de emergencia de inmediato. No estás solo en esto. Tu vida es increíblemente valiosa.
+''';
+          break;
+
+        case 'venting':
+          responseText = await VertexAIService.getCompassionateResponse(
+            conversationHistory: _messages,
+          );
+          break;
+
+        default:
+          if (sentiment == 'negative' && intent != 'seeking_advice') {
+            responseText = await VertexAIService.getCompassionateResponse(
+              conversationHistory: _messages,
+            );
+          } else {
+            final userContext = await _getUserContext();
+            responseText = await VertexAIService.getHabitAdvice(
+              conversationHistory: _messages,
+              userContext: userContext,
+            );
+          }
+          break;
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isTyping = false;
-          _messages.add(ChatMessage(
-            text: "Lo siento, hubo un problema al procesar tu mensaje. ¿Podrías intentarlo de nuevo?",
-            type: MessageType.vito,
-            timestamp: DateTime.now(),
-          ));
-        });
-        _scrollToBottom();
-      }
+      print('Error en la lógica de _sendMessage: $e');
+      responseText = "Uups, parece que mis circuitos se cruzaron por un momento. ¿Podrías repetirme eso, por favor?";
     }
-    
-    _typingAnimationController.stop();
+
+    if (mounted) {
+      setState(() {
+        _isTyping = false;
+        _messages.add(ChatMessage(
+          text: responseText,
+          type: MessageType.vito,
+          timestamp: DateTime.now(),
+        ));
+      });
+      _scrollToBottom();
+    }
   }
-  
+
   Future<Map<String, dynamic>> _getUserContext() async {
-    if (user == null) return {};
+    if (user == null) {
+      return {'userName': 'Usuario', 'wellnessReport': 'No hay datos disponibles.'};
+    }
 
     try {
-      final habitsSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .collection('habits')
-          .get();
-          
-      final habitsDetails = habitsSnapshot.docs.map((doc) {
-        final data = doc.data();
-        final completions = List<Timestamp>.from(data['completions'] ?? []);
-        final isCompletedToday = completions.any((ts) => 
-          DateUtils.isSameDay(ts.toDate(), DateTime.now())
-        );
-        
-        return {
-          'name': data['name'],
-          'category': data['category'] ?? 'otros',
-          'frequency': (data['days'] as List).length,
-          'streak': data['streak'] ?? 0,
-          'isCompletedToday': isCompletedToday,
-        };
-      }).toList();
+      // 1. Obtener el resumen de la última conversación (Memoria de Vito)
+      // Esto se mantiene, ya que es específico del chat.
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
+      final lastSummary = userDoc.data()?['lastVitoSummary'] as String? ?? 'Ninguna conversación previa.';
+      
+      // 2. Obtener el informe de bienestar completo desde nuestro servicio centralizado
+      // ¡Esta única línea reemplaza toda tu lógica anterior de hábitos y moods!
+      final wellnessReport = await StatsProcessingService.getWellnessReportForAI();
 
-      // Obtener mood del día si existe
-      final today = DateTime.now();
-      final startOfDay = DateTime(today.year, today.month, today.day);
-      
-      final moodSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .collection('moods')
-          .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
-          .limit(1)
-          .get();
-      
-      String? moodToday;
-      if (moodSnapshot.docs.isNotEmpty) {
-        moodToday = moodSnapshot.docs.first.data()['mood'];
-      }
-      
+      // 3. Devolver un contexto limpio y potente para la IA
       return {
         'userName': _userName,
-        'habits': habitsDetails,
-        'totalHabits': habitsDetails.length,
-        'completedToday': habitsDetails.where((h) => h['isCompletedToday'] == true).length,
-        'moodToday': moodToday ?? 'No registrado',
+        'lastConversationSummary': lastSummary,
+        'wellnessReport': wellnessReport,
       };
+      
     } catch (e) {
-      print('Error al obtener el contexto del usuario: $e');
-      return {'userName': _userName};
+      print('Error al obtener el contexto del usuario para la IA: $e');
+      // Devolvemos un contexto de emergencia para que la IA no falle.
+      return {
+        'userName': _userName,
+        'lastConversationSummary': 'No disponible.',
+        'wellnessReport': 'No se pudo cargar el informe de bienestar.',
+      };
     }
   }
 }

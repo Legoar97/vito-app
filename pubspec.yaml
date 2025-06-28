@@ -50,6 +50,7 @@ dependencies:
   # UI y navegación
   provider: ^6.1.5
   go_router: ^15.2.4
+  async: ^2.11.0
   
   # Utilidades
   intl: ^0.20.2

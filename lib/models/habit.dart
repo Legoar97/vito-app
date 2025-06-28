@@ -8,10 +8,15 @@ class Habit {
   final List<int> days;
   final TimeOfDay specificTime;
   final bool notifications;
-  final List<Timestamp> completions;
   final Timestamp createdAt;
   final int currentStreak;
   final int longestStreak;
+
+  // --- CAMPOS ACTUALIZADOS Y NUEVOS ---
+  final String type; // 'simple', 'quantifiable', 'timed'
+  final int? targetValue; // Para cantidad o minutos
+  final String? unit; // ej. 'vasos', 'páginas', 'min'
+  final Map<String, dynamic> completions; // Ya no es una lista de Timestamps
 
   Habit({
     required this.id,
@@ -20,10 +25,14 @@ class Habit {
     required this.days,
     required this.specificTime,
     required this.notifications,
-    required this.completions,
     required this.createdAt,
     required this.currentStreak,
     required this.longestStreak,
+    // --- NUEVOS PARÁMETROS EN EL CONSTRUCTOR ---
+    required this.type,
+    this.targetValue,
+    this.unit,
+    required this.completions,
   });
 
   /// Convierte un objeto Habit a un mapa para guardarlo en Firestore.
@@ -37,10 +46,14 @@ class Habit {
         'minute': specificTime.minute,
       },
       'notifications': notifications,
-      'completions': completions,
       'createdAt': createdAt,
       'currentStreak': currentStreak,
       'longestStreak': longestStreak,
+      // --- NUEVOS CAMPOS EN EL MAPA ---
+      'type': type,
+      'targetValue': targetValue,
+      'unit': unit,
+      'completions': completions,
     };
   }
 
@@ -59,10 +72,14 @@ class Habit {
       days: List<int>.from(data['days'] ?? []),
       specificTime: time,
       notifications: data['notifications'] ?? false,
-      completions: List<Timestamp>.from(data['completions'] ?? []),
       createdAt: data['createdAt'] ?? Timestamp.now(),
       currentStreak: data['currentStreak'] as int? ?? 0,
       longestStreak: data['longestStreak'] as int? ?? 0,
+      // --- LECTURA DE LOS NUEVOS CAMPOS ---
+      type: data['type'] as String? ?? 'simple',
+      targetValue: data['targetValue'] as int?,
+      unit: data['unit'] as String?,
+      completions: Map<String, dynamic>.from(data['completions'] ?? {}),
     );
   }
 }

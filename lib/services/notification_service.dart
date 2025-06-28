@@ -1,3 +1,5 @@
+// lib/services/notification_service.dart
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
@@ -26,12 +28,10 @@ class NotificationService {
 
     await _notifications.initialize(
       settings,
-      // <<< MEJORA >>> Manejador para cuando se toca la notificación
       onDidReceiveNotificationResponse: _onNotificationTap,
     );
   }
 
-  // <<< NUEVO >>> Solicita permisos explícitamente
   static Future<void> requestPermissions() async {
     final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
         FlutterLocalNotificationsPlugin();
@@ -50,7 +50,6 @@ class NotificationService {
         );
   }
 
-  // <<< MEJORA >>> El payload ahora contiene información para la acción
   static void _onNotificationTap(NotificationResponse response) async {
     debugPrint('Notification tapped with payload: ${response.payload}');
     if (response.payload == null || response.payload!.isEmpty) return;
@@ -58,7 +57,6 @@ class NotificationService {
     final payloadData = jsonDecode(response.payload!);
     final String? habitId = payloadData['habitId'];
     
-    // Si la acción es completar, se llama a FirestoreService
     if (habitId != null && response.actionId == 'COMPLETE_ACTION') {
       debugPrint('Completing habit $habitId from notification');
       try {
@@ -76,7 +74,6 @@ class NotificationService {
     required TimeOfDay time,
     required List<int> days,
   }) async {
-    // <<< NUEVO >>> Payload con el ID del hábito para la interactividad
     final payload = jsonEncode({'habitId': habitId});
 
     for (final day in days) {
@@ -87,7 +84,7 @@ class NotificationService {
         'Hora de: $habitName',
         '¡Mantén tu racha! Es momento de completar tu hábito.',
         _nextInstanceOfWeekdayTime(day, time),
-        NotificationDetails(
+        const NotificationDetails(
           android: AndroidNotificationDetails(
             'habit_reminders',
             'Recordatorios de Hábitos',
@@ -95,32 +92,81 @@ class NotificationService {
             importance: Importance.high,
             priority: Priority.high,
             showWhen: true,
-            icon: '@drawable/ic_notification', // Asegúrate que este ícono exista
-            color: const Color(0xFF6B5B95),
-            sound: const RawResourceAndroidNotificationSound('notification_sound'), // <<< NUEVO >>> Sonido personalizado
-            // <<< MEJORA >>> Acciones interactivas
+            icon: '@drawable/ic_notification',
+            color: Color(0xFF6B5B95),
+            sound: RawResourceAndroidNotificationSound('notification_sound'),
             actions: <AndroidNotificationAction>[
-              const AndroidNotificationAction(
+              AndroidNotificationAction(
                 'COMPLETE_ACTION',
                 'Marcar como completado',
                 showsUserInterface: false,
               ),
             ],
           ),
-          iOS: const DarwinNotificationDetails(
+          iOS: DarwinNotificationDetails(
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
             categoryIdentifier: 'HABIT_REMINDER_CATEGORY',
           ),
         ),
-        payload: payload, // <<< MEJORA >>> Se añade el payload
+        payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
       );
     }
+  }
+
+  // CORRECCIÓN: Se añade el método que faltaba
+  static Future<void> scheduleDailyNotification({
+    required int id,
+    required String title,
+    required String body,
+    required int hour,
+    required int minute,
+  }) async {
+    await _notifications.zonedSchedule(
+      id,
+      title,
+      body,
+      _nextInstanceOfTime(hour, minute),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'daily_reminders',
+          'Recordatorios Diarios',
+          channelDescription: 'Recordatorios diarios generales',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
+    final now = tz.TZDateTime.now(tz.local);
+    var scheduledDate = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
+    if (scheduledDate.isBefore(now)) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+    return scheduledDate;
   }
 
   static tz.TZDateTime _nextInstanceOfWeekdayTime(int weekday, TimeOfDay time) {
@@ -152,6 +198,20 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
-    // ... (sin cambios)
+     await _notifications.show(
+      0,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'general_notifications',
+          'Notificaciones Generales',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      payload: payload,
+    );
   }
 }
