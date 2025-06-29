@@ -7,8 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.vito_app"
-    compileSdk = flutter.compileSdkVersion
+    // CORREGIDO: namespace debe coincidir con applicationId
+    namespace = "com.vito.habits"
+    
+    // CORREGIDO: Valores explícitos para Android 13+ y notificaciones
+    compileSdk = 34
     ndkVersion = "27.0.12077973"
     
     compileOptions {
@@ -24,15 +27,17 @@ android {
     defaultConfig {
         applicationId = "com.vito.habits"
         
-        // CORRECCIÓN FINAL: Se aumenta la versión mínima de Android a 23.
-        // Esto satisface el requisito de la librería de Firebase Auth.
+        // Versión mínima de Android
         minSdk = 23
         
-        targetSdk = flutter.targetSdkVersion
+        // CORREGIDO: targetSdk explícito para Android 14
+        targetSdk = 34
+        
+        // Versiones de la app
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         
-        // IMPORTANTE: Agregar soporte para múltiples arquitecturas
+        // Soporte para múltiples arquitecturas
         ndk {
             abiFilters += listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
         }
@@ -41,6 +46,13 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
+            
+            // Opcional: configuración de optimización
+            minifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
         debug {
             signingConfig = signingConfigs.getByName("debug")
@@ -53,6 +65,9 @@ flutter {
 }
 
 dependencies {
+    // AÑADIDO: Dependencias necesarias para Android 13+
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
 
@@ -95,7 +110,7 @@ afterEvaluate {
     
     tasks.findByName("assembleRelease")?.finalizedBy("copyFlutterApkRelease")
 
-        tasks.register("copyFlutterAabRelease") {
+    tasks.register("copyFlutterAabRelease") {
         doLast {
             // 1. Ruta donde Gradle genera el .aab
             val sourceAab = file("build/outputs/bundle/release/app-release.aab")
@@ -121,4 +136,3 @@ afterEvaluate {
     // 5. Le decimos a Gradle que ejecute nuestra tarea justo después de crear el bundle
     tasks.findByName("bundleRelease")?.finalizedBy("copyFlutterAabRelease")
 }
-
