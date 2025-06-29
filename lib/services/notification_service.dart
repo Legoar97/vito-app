@@ -18,7 +18,12 @@ class NotificationService {
   static Future<void> initialize() async {
     tz.initializeTimeZones();
     
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // ================== ¡CORRECCIÓN CLAVE #1! ==================
+    // Aquí establecemos el ícono por defecto para TODAS las notificaciones de Android.
+    // Debe apuntar al ícono blanco y transparente que creamos en la carpeta 'drawable'.
+    const androidSettings = AndroidInitializationSettings('@drawable/ic_notification_icon');
+    // ==========================================================
+
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -34,14 +39,12 @@ class NotificationService {
   }
 
   static Future<void> requestPermissions() async {
-    // Tu código para solicitar permisos es perfecto, se mantiene igual.
     final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
     await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
     await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
   static void _onNotificationTap(NotificationResponse response) async {
-    // Tu código para manejar el tap es perfecto, se mantiene igual.
     debugPrint('Notification tapped with payload: ${response.payload}');
     if (response.payload == null || response.payload!.isEmpty) return;
 
@@ -65,7 +68,6 @@ class NotificationService {
     required TimeOfDay time,
     required List<int> days,
   }) async {
-    // Tu código para programar notificaciones de hábitos es excelente, se mantiene igual.
     final payload = jsonEncode({'habitId': habitId});
     for (final day in days) {
       final id = habitId.hashCode + day;
@@ -81,7 +83,12 @@ class NotificationService {
             channelDescription: 'Notificaciones para tus hábitos diarios',
             importance: Importance.high,
             priority: Priority.high,
-            icon: '@drawable/ic_notification',
+            // ================== ¡CORRECCIÓN CLAVE #2! ==================
+            // Se elimina la línea 'icon: ...' de aquí.
+            // ¿Por qué? Para que la notificación use automáticamente el ícono por defecto
+            // que definimos arriba en 'initialize()'. Esto hace el código más limpio,
+            // seguro y consistente.
+            // ==========================================================
             color: Color(0xFF6B5B95),
             sound: RawResourceAndroidNotificationSound('notification_sound'),
             actions: <AndroidNotificationAction>[AndroidNotificationAction('COMPLETE_ACTION', 'Marcar como completado')],
@@ -96,26 +103,25 @@ class NotificationService {
     }
   }
 
-  // --- NUEVA FUNCIÓN PARA PROGRAMAR EL RECORDATORIO DE ÁNIMO ---
+  // --- El resto de tu código está perfecto y no necesita cambios ---
+
   static Future<void> scheduleDailyMoodReminder() async {
     final prefs = await SharedPreferences.getInstance();
     final todayKey = 'mood_reminder_${DateFormat('yyyy-MM-dd').format(DateTime.now())}';
 
-    // 1. Verificamos si ya hemos programado el recordatorio para hoy
     if (prefs.getBool(todayKey) ?? false) {
       print('El recordatorio de ánimo para hoy ya fue programado.');
       return;
     }
 
-    // 2. Programamos la notificación para las 8 PM (20:00)
     await _notifications.zonedSchedule(
-      _moodReminderId, // Usamos un ID fijo para poder cancelarlo
+      _moodReminderId,
       '¿Cómo te fue hoy? 💭',
       'Tómate un momento para registrar tu estado de ánimo en Vito.',
-      _nextInstanceOfTime(20, 0), // Llama al helper para las 8 PM
+      _nextInstanceOfTime(20, 0),
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'mood_reminders', // Un canal separado es una buena práctica
+          'mood_reminders',
           'Recordatorios de Ánimo',
           channelDescription: 'Recordatorios para registrar tu estado de ánimo.',
           importance: Importance.defaultImportance,
@@ -128,18 +134,14 @@ class NotificationService {
       matchDateTimeComponents: DateTimeComponents.time,
     );
 
-    // 3. Marcamos que ya se programó para hoy para no volverlo a hacer
     await prefs.setBool(todayKey, true);
     print('Recordatorio de ánimo programado para las 8 PM de hoy.');
   }
 
-  // --- NUEVA FUNCIÓN PARA CANCELAR EL RECORDATORIO DE ÁNIMO ---
   static Future<void> cancelDailyMoodReminder() async {
      await _notifications.cancel(_moodReminderId);
      print('Recordatorio de ánimo para hoy (si existía) ha sido cancelado.');
   }
-
-  // --- HELPERS Y OTRAS FUNCIONES (sin cambios) ---
 
   static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final now = tz.TZDateTime.now(tz.local);
@@ -171,7 +173,7 @@ class NotificationService {
     String? payload,
   }) async {
      await _notifications.show(
-      DateTime.now().millisecond, // ID aleatorio para que no se sobreescriban
+      DateTime.now().millisecond,
       title,
       body,
       const NotificationDetails(
@@ -186,8 +188,4 @@ class NotificationService {
       payload: payload,
     );
   }
-
-  // He eliminado 'scheduleDailyNotification' ya que 'scheduleDailyMoodReminder'
-  // es más específica y hace un trabajo similar. Si la usabas para otra cosa,
-  // puedes mantenerla, pero esta nueva estructura es más clara.
 }

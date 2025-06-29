@@ -809,10 +809,10 @@ class _AICoachScreenState extends State<AICoachScreen> with TickerProviderStateM
         case 'greeting':
           // Si el usuario pregunta "¿cómo estás?", respondemos directamente.
           if (messageText.toLowerCase().contains('cómo estás')) {
-            responseText = '¡Gracias por preguntar, Ivan! 😊 Estoy listo y con toda la energía para ayudarte. ¿Cómo te encuentras tú realmente hoy?';
+            responseText = '¡Gracias por preguntar! 😊 Estoy listo y con toda la energía para ayudarte. ¿Cómo estás tú hoy?';
           } else {
             // Para un simple "Hola", respondemos sin asumir nada.
-            responseText = '¡Hola de nuevo, Ivan! ¿Hay algo en lo que pueda ayudarte o alguna idea que te ronde la cabeza hoy?';
+            responseText = '¡Hola de nuevo, ¿cómo estás?! ¿Hay algo en lo que pueda ayudarte o alguna idea que te ronde la cabeza hoy?';
           }
           break;
         case 'crisis':

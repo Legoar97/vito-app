@@ -325,7 +325,7 @@ ${habitsString}
         ---
         **EJEMPLOS PRÁCTICOS:**
         -   Usuario: "Pues no sé, no sé cocinar y logro aprender inglés fluidamente, me siento un poco frustrado y agobiado"
-        -   **RESPUESTA EXCELENTE (Valida con variedad y pregunta):** "Llevar esas dos frustraciones a la vez tiene que ser agotador, Ivan. Es completamente entendible sentirse así cuando sientes que no avanzas en cosas que te importan. Gracias por la valentía de compartirlo. De esas dos cosas, ¿cuál sientes que te está pesando más en este momento?"
+        -   **RESPUESTA EXCELENTE (Valida con variedad y pregunta):** "Llevar esas dos frustraciones a la vez tiene que ser agotador. Es completamente entendible sentirse así cuando sientes que no avanzas en cosas que te importan. Gracias por la valentía de compartirlo. De esas dos cosas, ¿cuál sientes que te está pesando más en este momento?"
 
         -   Usuario: "Mañana cumplo años y me siento estancado en la vida, cumplo 28 años y no he terminado la uni"
         -   **RESPUESTA EXCELENTE (Valida y luego pregunta):** "Puedo entender perfectamente esa sensación. Los cumpleaños a veces traen ese peso y es totalmente válido sentirse así. Gracias por la confianza al contarme algo tan personal. **Si te sientes cómodo, ¿qué es lo que más te hace sentir 'estancado' en este momento?**"

@@ -318,6 +318,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     });
   }
   
+// En tu clase _LoginScreenState (dentro de login_screen.dart)
+
   Widget _buildLogo() {
     return FadeTransition(
       opacity: CurvedAnimation(
@@ -332,73 +334,67 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           parent: _slideController,
           curve: Curves.easeOutQuart,
         )),
-        child: AnimatedBuilder(
-          animation: _breathingController,
-          builder: (context, child) {
-            final breathValue = _breathingController.value;
-            return Transform.scale(
-              scale: 1.0 + (breathValue * 0.05),
-              child: Column(
-                children: [
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Colors.white.withOpacity(0.3 + breathValue * 0.1),
-                          Colors.white.withOpacity(0.1 + breathValue * 0.1),
-                        ],
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.4),
-                        width: 2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.white.withOpacity(0.2 + breathValue * 0.1),
-                          blurRadius: 30 + breathValue * 10,
-                          spreadRadius: 5,
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.spa_rounded,
-                      size: 60,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Vito',
-                    style: GoogleFonts.poppins(
-                      fontSize: 48,
-                      fontWeight: FontWeight.w300,
-                      color: Colors.white,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  Text(
-                    'Tu espacio de bienestar',
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      color: Colors.white.withOpacity(0.8),
-                      fontWeight: FontWeight.w300,
-                      letterSpacing: 0.5,
-                    ),
+        // --- CAMBIO CLAVE: Se eliminó el AnimatedBuilder y el Transform.scale ---
+        // Ahora devolvemos directamente la columna con los elementos visuales estáticos.
+        child: Column(
+          children: [
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    // Usamos valores fijos en lugar de los que dependen de 'breathValue'
+                    Colors.white.withOpacity(0.3),
+                    Colors.white.withOpacity(0.1),
+                  ],
+                ),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.4),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.white.withOpacity(0.2),
+                    blurRadius: 30,
+                    spreadRadius: 5,
                   ),
                 ],
               ),
-            );
-          },
+              child: Icon(
+                Icons.spa_rounded,
+                size: 60,
+                color: Colors.white.withOpacity(0.9),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Vito',
+              style: GoogleFonts.poppins(
+                fontSize: 48,
+                fontWeight: FontWeight.w300,
+                color: Colors.white,
+                letterSpacing: 2,
+              ),
+            ),
+            Text(
+              'Tu espacio de bienestar',
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                color: Colors.white.withOpacity(0.8),
+                fontWeight: FontWeight.w300,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-  
+    
   Widget _buildGlassCard() {
     return SlideTransition(
       position: Tween<Offset>(

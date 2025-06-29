@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'dart:ui';
 import 'dart:async'; 
 import 'dart:math' as math;
@@ -12,6 +13,7 @@ import '../models/habit.dart';
 import '../theme/app_colors.dart';
 import '../screens/vito_chat_habit_screen.dart';
 import '../services/notification_service.dart';
+
 
 // --- NUEVO MODELO DE MOOD ---
 class Mood {
@@ -47,6 +49,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   final GlobalKey _moodTrackerKey = GlobalKey();
   final GlobalKey _progressCardKey = GlobalKey();
   final GlobalKey _fabKey = GlobalKey(); // FAB = Floating Action Button
+  String _userName = ''; 
   // --- FIN DE VARIABLES PARA EL TUTORIAL ---
 
   bool _isLoadingSuggestions = false;
@@ -78,34 +81,58 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    )..forward();
     
-    _floatingAnimationController = AnimationController(
-      duration: const Duration(seconds: 4),
-      vsync: this,
-    )..repeat(reverse: true);
+    // Inicialización de controladores de animación y scroll
+    _animationController = AnimationController(duration: const Duration(milliseconds: 1200), vsync: this)..forward();
+    _floatingAnimationController = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat(reverse: true);
+    _pulseAnimationController = AnimationController(duration: const Duration(seconds: 2), vsync: this)..repeat(reverse: true);
     
-    _pulseAnimationController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _scrollController = ScrollController()
-      ..addListener(() {
+    _scrollController = ScrollController()..addListener(() {
+      if (mounted) {
         setState(() {
           _scrollOffset = _scrollController.offset;
         });
-      });
-    NotificationService.scheduleDailyMoodReminder(); 
+      }
+    });
 
+    // Carga de datos inicial
     if (user != null) {
       _initializeStream();
-      _checkOnboardingStatus(); 
+      _loadUserNameAndOnboarding(); // <--- CAMBIO CLAVE: Nueva función que agrupa la lógica
       _loadTodaysMood();
     }
+    
+    // Configuración de servicios y notificaciones
+    NotificationService.scheduleDailyMoodReminder(); 
+    _listenToBackgroundService();
+  }
+
+  // --- NUEVO: Método separado para mantener el código limpio ---
+  void _listenToBackgroundService() {
+    final service = FlutterBackgroundService();
+
+    // Escucha el evento 'update' que el servicio envía cada segundo.
+    service.on('update').listen((event) {
+      if (mounted && _activeTimerHabitId != null && event != null) {
+        // Actualiza el estado de la UI con el tiempo restante.
+        setState(() {
+          _timerSecondsRemaining = event['remaining'] as int? ?? 0;
+        });
+      }
+    });
+
+    // Escucha el evento 'timerFinished' que el servicio envía una vez al terminar.
+    service.on('timerFinished').listen((event) {
+      if (mounted && _activeTimerHabitId != null) {
+        // Cuando el timer termina, marca el hábito como completado
+        _completeTimedHabit(_activeTimerHabitId!);
+        // Y resetea el estado del timer en la UI.
+        setState(() {
+          _activeTimerHabitId = null;
+          _timerSecondsRemaining = 0;
+        });
+      }
+    });
   }
 
   Future<void> _checkOnboardingStatus() async {
@@ -116,7 +143,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       if (mounted && (userDoc.data()?['onboardingCompleted'] == null || userDoc.data()?['onboardingCompleted'] == false)) {
         setState(() {
           _showTutorial = true;
-          _tutorialStep = 0; // Empezamos desde el primer paso
+          _tutorialStep = -1; // Empezamos desde el primer paso
         });
       }
     } catch (e) {
@@ -154,7 +181,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     await Future.delayed(const Duration(seconds: 2));
     final Map<String, List<String>> mockSuggestions = {
       'Salud': ['Beber un vaso de agua', 'Estirar por 10 minutos', 'Caminar 15 minutos'],
-      'Mente': ['Meditar 5 minutos', 'Escribir un diario', 'Leer 10 páginas'],
+      'Mente': ['Meditar 5 minutos', 'Escribir un diario', 'Leer 10 minutos'],
       'Trabajo': ['Organizar tu escritorio', 'Planificar tus 3 tareas más importantes', 'Tomar un descanso de 5 min'],
       'Creativo': ['Dibujar algo simple', 'Escuchar música nueva', 'Escribir una idea'],
       'Finanzas': ['Anotar gastos del día', 'Revisar tu presupuesto', 'Aprender un término financiero'],
@@ -186,6 +213,33 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
         setState(() => _suggestedHabits.remove(habitToRemove));
       }
     });
+  }
+
+
+  Future<void> _loadUserNameAndOnboarding() async {
+    if (user == null) return;
+    
+    // Primero, obtenemos el nombre de usuario
+    final displayName = user!.displayName;
+    if (displayName != null && displayName.isNotEmpty) {
+      _userName = displayName.split(' ').first;
+    } else {
+      // Si no está en Auth, lo buscamos en Firestore
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
+        if(mounted && userDoc.exists) {
+          _userName = (userDoc.data()?['displayName'] as String?)?.split(' ').first ?? 'amigo';
+        }
+      } catch (e) {
+        _userName = ''; 
+      }
+    }
+    
+    // Una vez que tenemos el nombre, actualizamos el estado y LUEGO verificamos el onboarding.
+    if (mounted) {
+      setState(() {}); // Actualiza la UI para que el nombre esté disponible en el saludo
+      _checkOnboardingStatus(); // Ahora sí, verificamos el onboarding con el nombre ya cargado.
+    }
   }
 
   // --- LÓGICA DE MOOD TRACKER ACTUALIZADA ---
@@ -264,66 +318,72 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      // --- CAMBIO PRINCIPAL: Envolvemos todo en un Stack ---
       body: Stack(
         children: [
-          // --- El contenido original de la pantalla va aquí ---
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  AppColors.primary.withOpacity(0.02),
-                  AppColors.secondary.withOpacity(0.01),
-                  Colors.white,
-                ],
-              ),
+          AbsorbPointer(
+            absorbing: _showTutorial,
+            child: CustomScrollView(
+              physics: _showTutorial
+                  ? const NeverScrollableScrollPhysics()
+                  : const BouncingScrollPhysics(),
+              controller: _scrollController,
+              slivers: [
+                _buildPremiumSliverAppBar(),
+
+                // --- CAMBIO CLAVE: La key se asigna a un Container (RenderBox) ---
+                // en lugar de al SliverToBoxAdapter directamente.
+                SliverToBoxAdapter(
+                  child: Container(
+                    key: _moodTrackerKey,
+                    child: _buildPremiumMoodTracker(),
+                  ),
+                ),
+
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                    child: _showTutorial
+                        // --- CAMBIO CLAVE: La key se asigna aquí también ---
+                        ? Container(
+                            key: _progressCardKey,
+                            child: _buildPremiumProgressCard([]),
+                          )
+                        : StreamBuilder<QuerySnapshot>(
+                            stream: _allHabitsStream,
+                            builder: (context, snapshot) {
+                              final allHabits = snapshot.data?.docs ?? [];
+                              // --- CAMBIO CLAVE: Y aquí ---
+                              return Container(
+                                key: _progressCardKey,
+                                child: _buildPremiumProgressCard(allHabits),
+                              );
+                            },
+                          ),
+                  ),
+                ),
+                if (_isLoadingSuggestions) _buildLoadingSuggestionsIndicator(),
+                if (_suggestedHabits.isNotEmpty) _buildPremiumSuggestionsSection(),
+                _buildPremiumHabitsListHeader(),
+                StreamBuilder<QuerySnapshot>(
+                  stream: _allHabitsStream,
+                  builder: (context, snapshot) {
+                    if (_showTutorial) {
+                      return const SliverToBoxAdapter(child: SizedBox.shrink());
+                    }
+                    final allHabits = snapshot.data?.docs ?? [];
+                    return _buildPremiumHabitsList(allHabits);
+                  },
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 120)),
+              ],
             ),
           ),
-          ..._buildFloatingShapes(),
-          StreamBuilder<QuerySnapshot>(
-            stream: _allHabitsStream,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2));
-              }
-              if (snapshot.hasError) {
-                return Center(child: Text("Error: ${snapshot.error}"));
-              }
-
-              final allHabits = snapshot.data?.docs ?? [];
-              
-              return CustomScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  _buildPremiumSliverAppBar(),
-                  _buildPremiumMoodTracker(),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: _buildPremiumProgressCard(allHabits),
-                    ),
-                  ),
-                  if (_isLoadingSuggestions)
-                    _buildLoadingSuggestionsIndicator(),
-                  if (_suggestedHabits.isNotEmpty)
-                    _buildPremiumSuggestionsSection(),
-                  _buildPremiumHabitsListHeader(),
-                  // El _buildHabitIdeaSection() se elimina de aquí
-                  _buildPremiumHabitsList(allHabits),
-                  const SliverToBoxAdapter(child: SizedBox(height: 120)), // Más espacio para el FAB
-                ],
-              );
-            },
-          ),
-          // --- NUEVO CHIP DE IDEAS FLOTANTE ---
-          _buildIdeaChip(),
-        // --- NUEVO: El overlay del tutorial se dibuja encima de todo ---
+          if (!_showTutorial) ...[
+            _buildIdeaChip(),
+          ],
+          // Esta condición ahora llama al overlay corregido
           if (_showTutorial) _buildTutorialOverlay(),
         ],
       ),
@@ -332,10 +392,50 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
         child: _buildFloatingActionButton(),
       ),
     );
-  }     
+  }
 
 // Métodos para tutorial
 // Obtiene la posición y tamaño de un widget usando su GlobalKey
+
+  Widget _buildStaticMoodTrackerTutorial() {
+    return Material(
+      color: Colors.transparent,
+      child: Stack(
+        children: [
+          // Fondo oscuro
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () => setState(() => _tutorialStep++),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                child: Container(color: Colors.black.withOpacity(0.6)),
+              ),
+            ),
+          ),
+          // Centramos el Mood Tracker y el diálogo
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Usamos el widget original, pero fuera del scroll
+                _buildPremiumMoodTracker(),
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildTutorialDialog(
+                    title: 'Registra tu Ánimo',
+                    text: 'Empecemos por aquí. Toca un emoji para registrar cómo te sientes. Esto te ayudará a ver la conexión entre tu ánimo y tus hábitos. Puedes registrar tu ánimo cada 3 horas.',
+                    isLastStep: false,
+                    onNext: () => setState(() => _tutorialStep++),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Rect? _getWidgetRect(GlobalKey key) {
     final RenderBox? renderBox = key.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox != null) {
@@ -346,98 +446,171 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     return null;
   }
 
-  // Construye el overlay completo del tutorial
-  Widget _buildTutorialOverlay() {
-    GlobalKey? currentKey;
-    String title = '';
-    String text = '';
-    Alignment dialogAlignment = Alignment.center;
-
-    // Determina qué mostrar según el paso actual
-    switch (_tutorialStep) {
-      case 0:
-        currentKey = _moodTrackerKey;
-        title = '¡Bienvenido a Vito!';
-        text = 'Empecemos por aquí. Registra cómo te sientes cada día para llevar un seguimiento de tu bienestar emocional.';
-        dialogAlignment = Alignment.bottomCenter;
-        break;
-      case 1:
-        currentKey = _progressCardKey;
-        title = 'Tu Centro de Mando';
-        text = 'Esta tarjeta te mostrará tu progreso diario y tu racha de constancia. ¡Vamos a llenarla!';
-        dialogAlignment = Alignment.bottomCenter;
-        break;
-      case 2:
-        currentKey = _fabKey;
-        title = 'Crea tu Primer Hábito';
-        text = 'Toca este botón para añadir un nuevo hábito. Te ayudaré a configurarlo paso a paso.';
-        dialogAlignment = Alignment.topCenter;
-        break;
-    }
-
-    // --- LÍNEA CORREGIDA ---
-    final highlightRect = currentKey != null ? _getWidgetRect(currentKey) : null;
-
+  Widget _buildStaticCardTutorial() {
     return Material(
       color: Colors.transparent,
       child: Stack(
         children: [
-          // Fondo oscuro y difuminado
+          // Fondo oscuro y difuminado (cubre toda la pantalla)
           Positioned.fill(
             child: GestureDetector(
-              onTap: () { // Permite avanzar tocando fuera del diálogo
-                if (_tutorialStep < 2) {
-                    setState(() => _tutorialStep++);
-                }
-              },
-              child: ClipPath(
-                clipper: InvertedClipper(
-                  // Le damos un poco de espacio al recorte
-                  rect: highlightRect?.inflate(15.0) ?? Rect.zero,
-                  shape: BoxShape.rectangle,
-                ),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                  child: Container(
-                    color: Colors.black.withOpacity(0.6),
-                  ),
-                ),
+              onTap: () => setState(() => _tutorialStep++),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                child: Container(color: Colors.black.withOpacity(0.6)),
               ),
             ),
           ),
-          
-          // Diálogo de texto
-          if (highlightRect != null)
-            Positioned(
-              top: dialogAlignment == Alignment.bottomCenter 
-                    ? highlightRect.bottom + 20 
-                    : null,
-              bottom: dialogAlignment == Alignment.topCenter 
-                    ? MediaQuery.of(context).size.height - highlightRect.top + 20
-                    : null,
-              left: 20,
-              right: 20,
-              child: _buildTutorialDialog(
-                title: title,
-                text: text,
-                isLastStep: _tutorialStep == 2,
-                onNext: () {
-                  if (_tutorialStep == 2) {
-                    // Si es el último paso, abrimos el chat y terminamos el tutorial
-                    _completeTutorial();
-                    _showAddHabitBottomSheet();
-                  } else {
-                    setState(() => _tutorialStep++);
-                  }
-                },
-              ),
+          // Colocamos una copia visual de la tarjeta y el diálogo encima
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Mostramos una versión vacía de la tarjeta para el tutorial
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  child: _buildPremiumProgressCard([]), 
+                ),
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildTutorialDialog(
+                    title: 'Tu Centro de Mando',
+                    text: 'Esta tarjeta te mostrará tu progreso diario y tu racha de constancia. ¡Vamos a llenarla!',
+                    isLastStep: false,
+                    onNext: () => setState(() => _tutorialStep++),
+                  ),
+                ),
+              ],
             ),
+          ),
         ],
       ),
     );
   }
-  
-  // Diálogo que muestra el texto del tutorial
+
+  Widget _buildTutorialOverlay() {
+    // Paso de bienvenida
+    if (_tutorialStep == -1) {
+      return _buildWelcomeDialog();
+    }
+    
+    // Paso 0 (Mood Tracker) ahora usa su propia vista estática
+    if (_tutorialStep == 0) {
+      return _buildStaticMoodTrackerTutorial();
+    }
+
+    // Paso 1 (Centro de Mando) ya usa su vista estática
+    if (_tutorialStep == 1) {
+      return _buildStaticCardTutorial();
+    }
+    
+    // Paso 2 (FAB) usa el spotlight porque SÍ es un RenderBox (no está en el scroll)
+    if (_tutorialStep == 2) {
+      GlobalKey? currentKey = _fabKey;
+      String title = 'Crea tu Primer Hábito';
+      String text = 'Toca este botón para añadir un nuevo hábito. Te ayudaré a configurarlo paso a paso.';
+      
+      final highlightRect = currentKey != null ? _getWidgetRect(currentKey) : null;
+      return Material(
+        color: Colors.transparent,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                // El último paso solo avanza con el botón
+                onTap: () {}, 
+                child: ClipPath(
+                  clipper: InvertedClipper(
+                    rect: highlightRect?.inflate(15.0) ?? Rect.zero,
+                    shape: BoxShape.circle,
+                  ),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                    child: Container(color: Colors.black.withOpacity(0.6)),
+                  ),
+                ),
+              ),
+            ),
+            if (highlightRect != null)
+              Positioned(
+                // Alineación del diálogo sobre el FAB
+                bottom: MediaQuery.of(context).size.height - highlightRect.top + 20,
+                left: 20,
+                right: 20,
+                child: _buildTutorialDialog(
+                  title: title,
+                  text: text,
+                  isLastStep: _tutorialStep == 2,
+                  onNext: () {
+                    // Acción final
+                    _completeTutorial();
+                    _showAddHabitBottomSheet();
+                  },
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    // Fallback por si hay un estado de tutorial inválido
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildWelcomeDialog() {
+    return Container(
+      color: Colors.black.withOpacity(0.7),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+        child: Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.spa_rounded, color: AppColors.primary, size: 60),
+                  const SizedBox(height: 24),
+                  // --- LÍNEA CORREGIDA ---
+                  // Se usa la variable _userName que es parte del estado de la clase.
+                  Text(
+                    _userName.isNotEmpty ? '¡Hola, $_userName!' : '¡Qué bueno tenerte aquí!',
+                    style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    // Usamos comillas triples para que el texto multilínea no de problemas
+                    '''Vito es tu espacio para construir una vida más saludable y feliz, un pequeño paso a la vez. El verdadero cambio viene de la constancia, y mi trabajo es hacer que ese camino sea fácil y motivador para ti. En este rápido tour, te mostraré las herramientas clave que usaremos juntos. 🌱''',
+                    style: GoogleFonts.poppins(fontSize: 16, color: const Color(0xFF64748B), height: 1.6),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+                  ElevatedButton(
+                    onPressed: () => setState(() => _tutorialStep = 0),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: Text('¡Comencemos!', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
+                  )
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTutorialDialog({
     required String title,
     required String text,
@@ -504,6 +677,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       ),
     );
   }
+
   
   // Marca el tutorial como completado en Firestore
   Future<void> _completeTutorial() async {
@@ -672,93 +846,90 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   // Mood Tracker Premium
-  SliverToBoxAdapter _buildPremiumMoodTracker() {
+  Widget _buildPremiumMoodTracker() {
     final lastMoodName = _todaysMoods.isEmpty ? null : _todaysMoods.first['mood'];
 
-    return SliverToBoxAdapter(
-      child: FadeTransition(
-        opacity: CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0)),
-        child: SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0))),
-          child: Container(
-            key: _moodTrackerKey,
-            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 30, offset: const Offset(0, 10))],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
-                            child: Icon(Icons.favorite_rounded, color: AppColors.primary, size: 24),
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0)),
+      child: SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0))),
+        child: Container(
+          // NOTA: La key ya no se asigna aquí. Se asignará en el 'build'.
+          margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [Colors.white.withOpacity(0.9), Colors.white.withOpacity(0.8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 30, offset: const Offset(0, 10))],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+                          child: Icon(Icons.favorite_rounded, color: AppColors.primary, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('¿Cómo te sientes?', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
+                              Text('Registra tu estado de ánimo', style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFF64748B))),
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('¿Cómo te sientes?', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B))),
-                                Text('Registra tu estado de ánimo', style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFF64748B))),
-                              ],
-                            ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: moods.map((mood) {
+                        final isSelected = lastMoodName == mood.name;
+                        return GestureDetector(
+                          onTap: () => _saveMood(mood.name),
+                          child: Column(
+                            children: [
+                              AnimatedScale(
+                                scale: isSelected ? 1.15 : 1.0,
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOutBack,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  padding: EdgeInsets.all(isSelected ? 14 : 12),
+                                  decoration: BoxDecoration(
+                                    gradient: isSelected ? LinearGradient(colors: mood.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
+                                    color: isSelected ? null : Colors.grey.shade100,
+                                    shape: BoxShape.circle,
+                                    boxShadow: isSelected ? [BoxShadow(color: mood.gradient.first.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 8))] : [],
+                                  ),
+                                  child: Icon(mood.icon, color: isSelected ? Colors.white : Colors.grey.shade600, size: 26),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              AnimatedOpacity(
+                                opacity: isSelected ? 1.0 : 0.0,
+                                duration: const Duration(milliseconds: 200),
+                                child: Text(
+                                  mood.name,
+                                  style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: mood.gradient.last),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: moods.map((mood) {
-                          final isSelected = lastMoodName == mood.name;
-
-                          return GestureDetector(
-                            onTap: () => _saveMood(mood.name),
-                            child: Column(
-                              children: [
-                                AnimatedScale(
-                                  scale: isSelected ? 1.15 : 1.0,
-                                  duration: const Duration(milliseconds: 200),
-                                  curve: Curves.easeOutBack,
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 300),
-                                    padding: EdgeInsets.all(isSelected ? 14 : 12),
-                                    decoration: BoxDecoration(
-                                      gradient: isSelected ? LinearGradient(colors: mood.gradient, begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
-                                      color: isSelected ? null : Colors.grey.shade100,
-                                      shape: BoxShape.circle,
-                                      boxShadow: isSelected ? [BoxShadow(color: mood.gradient.first.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 8))] : [],
-                                    ),
-                                    child: Icon(mood.icon, color: isSelected ? Colors.white : Colors.grey.shade600, size: 26),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                AnimatedOpacity(
-                                  opacity: isSelected ? 1.0 : 0.0,
-                                  duration: const Duration(milliseconds: 200),
-                                  child: Text(
-                                    mood.name,
-                                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: mood.gradient.last),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1188,14 +1359,33 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   String _getMotivationalQuote() {
+    // Lista de frases nuevas y sin emojis
     final quotes = [
-      'Un paso a la vez, un día a la vez ✨',
-      'Tu constancia es tu superpoder 💪',
-      'Hoy es un gran día para brillar 🌟',
-      'Pequeños cambios, grandes resultados 🚀',
-      'Tu mejor versión te está esperando 🌱'
+      'Un pequeño paso hoy es un gran salto mañana.',
+      'La constancia es la clave del éxito.',
+      'Tu mejor versión te está esperando.',
+      'Cree en el poder de tus hábitos.',
+      'Cada día es una nueva oportunidad para mejorar.',
+      'La disciplina es el puente entre metas y logros.',
+      'El progreso, no la perfección, es lo que importa.',
+      'Eres más fuerte de lo que piensas.',
+      'Siembra un hábito, cosecha un futuro.',
+      'La acción más pequeña es mejor que la intención más grande.',
+      'Enfócate en el progreso, no en los resultados.',
+      'Tu futuro se crea por lo que haces hoy.',
+      'Confía en el proceso de tu crecimiento.',
+      'La paciencia y la perseverancia tienen un efecto mágico.',
+      'Transforma tus rutinas para transformar tu vida.'
     ];
-    return quotes[DateTime.now().day % quotes.length];
+    
+    // Usamos el "día del año" (un número del 1 al 366) para seleccionar la frase.
+    // Esto garantiza que la frase sea la misma durante todo un día, pero cambie al día siguiente.
+    final dayOfYear = int.parse(DateFormat("D").format(DateTime.now()));
+    
+    // El módulo asegura que el índice siempre esté dentro de los límites de la lista.
+    final quoteIndex = dayOfYear % quotes.length;
+    
+    return quotes[quoteIndex];
   }
 
   Widget _buildPremiumWeekSelector() {

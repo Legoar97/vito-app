@@ -302,6 +302,11 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
   Future<void> _createHabitFromBuilder() async {
     setState(() => _isProcessing = true);
     
+    // --- CAMBIO CLAVE: Bloqueamos la UI ANTES de empezar ---
+    // Removemos los botones de acción para que el usuario no pueda volver a interactuar.
+    _messages.removeWhere((m) => m.text == 'ACTION_BUTTONS');
+    HapticFeedback.mediumImpact();
+
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception('Usuario no autenticado');
@@ -330,6 +335,7 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
           .collection('habits')
           .add(habit);
       
+      // Solo programamos notificaciones si el hábito se creó correctamente
       await NotificationService.scheduleHabitNotification(
         habitId: docRef.id,
         habitName: _habitBuilder.name!,
@@ -341,58 +347,75 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
       
       _addVitoMessage('¡Listo! 🎉\n\nTu hábito "${_habitBuilder.name}" ha sido creado. ¡Vamos por ese cambio positivo! 💪', withTyping: false);
       
-      Future.delayed(const Duration(seconds: 4), () {
-        if (mounted) Navigator.pop(context);
+      // Esperamos un poco para que el usuario lea el mensaje y luego cerramos.
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) Navigator.of(context).pop();
       });
       
     } catch (e) {
-      _addVitoMessage('Oh no 😔\n\nHubo un problema al crear tu hábito. ¿Podrías intentarlo de nuevo?', withTyping: false);
-      setState(() => _isProcessing = false);
+      // Si algo falla, ahora sí mostramos el error.
+      print("Error creando hábito: $e"); // Bueno para depurar
+      if (mounted) {
+        _addVitoMessage('Oh no 😔\n\nHubo un problema al crear tu hábito. ¿Podrías intentarlo de nuevo desde el principio?', withTyping: false);
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
-  Future<void> _updateHabitFromBuilder() async {
-    setState(() => _isProcessing = true);
+// En _VitoChatHabitSheetState
+
+Future<void> _updateHabitFromBuilder() async {
+  setState(() => _isProcessing = true);
+
+  // --- CAMBIO CLAVE: Bloqueamos la UI ANTES de empezar ---
+  _messages.removeWhere((m) => m.text == 'ACTION_BUTTONS');
+  HapticFeedback.mediumImpact();
     
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null || widget.habit == null) throw Exception('Usuario o hábito no válido');
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || widget.habit == null) throw Exception('Usuario o hábito no válido');
 
-      final updatedData = {
-        'name': _habitBuilder.name,
-        'category': _habitBuilder.category,
-        'days': _habitBuilder.days!..sort(),
-        'specificTime': {
-          'hour': _habitBuilder.time!.hour,
-          'minute': _habitBuilder.time!.minute,
-        },
-        // ... otros campos que el builder pueda modificar ...
-      };
+    final updatedData = {
+      'name': _habitBuilder.name,
+      'category': _habitBuilder.category,
+      'days': _habitBuilder.days!..sort(),
+      'specificTime': {
+        'hour': _habitBuilder.time!.hour,
+        'minute': _habitBuilder.time!.minute,
+      },
+      // Aquí podrías añadir los otros campos si la IA los modifica
+      'targetValue': _habitBuilder.targetValue,
+      'unit': _habitBuilder.unit,
+      'type': _habitBuilder.type,
+    };
 
-      await FirestoreService.updateHabit(widget.habit!.id, updatedData);
+    await FirestoreService.updateHabit(widget.habit!.id, updatedData);
 
-      // Reprogramar notificaciones si el tiempo o los días cambiaron
-      await NotificationService.cancelHabitNotifications(widget.habit!.id, widget.habit!.days);
-      await NotificationService.scheduleHabitNotification(
-        habitId: widget.habit!.id,
-        habitName: _habitBuilder.name!,
-        time: _habitBuilder.time!,
-        days: _habitBuilder.days!,
-      );
+    // Reprogramar notificaciones
+    await NotificationService.cancelHabitNotifications(widget.habit!.id, widget.habit!.days);
+    await NotificationService.scheduleHabitNotification(
+      habitId: widget.habit!.id,
+      habitName: _habitBuilder.name!,
+      time: _habitBuilder.time!,
+      days: _habitBuilder.days!,
+    );
       
-      if (!mounted) return;
+    if (!mounted) return;
       
-      _addVitoMessage('¡Hábito actualizado! ✨\n\nLos cambios para "${_habitBuilder.name}" han sido guardados.', withTyping: false);
+    _addVitoMessage('¡Hábito actualizado! ✨\n\nLos cambios para "${_habitBuilder.name}" han sido guardados.', withTyping: false);
       
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) Navigator.pop(context);
-      });
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) Navigator.of(context).pop();
+    });
 
-    } catch (e) {
+  } catch (e) {
+    print("Error actualizando hábito: $e"); // Bueno para depurar
+    if (mounted) {
       _addVitoMessage('Ups, algo salió mal al actualizar. ¿Lo intentamos de nuevo?', withTyping: false);
       setState(() => _isProcessing = false);
     }
   }
+}
   
   void _showDeleteConfirmation() {
     HapticFeedback.mediumImpact();

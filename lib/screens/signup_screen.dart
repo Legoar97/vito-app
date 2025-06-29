@@ -165,9 +165,13 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
     setState(() => _currentPage--);
   }
 
+// En tu clase _SignUpScreenState (dentro de signup_screen.dart)
+
   Future<void> _signUp() async {
+    // Validamos el formulario y los términos
     if (!_formKey.currentState!.validate() || !_termsAccepted) return;
 
+    // Validamos que se haya seleccionado la fecha de nacimiento
     if (_selectedBirthDate == null) {
       _showSnackBar('Por favor, selecciona tu fecha de nacimiento', AppColors.warning);
       return;
@@ -177,32 +181,57 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
     setState(() => _isLoading = true);
 
     try {
+      // 1. Creamos el usuario en Firebase Authentication
       UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      if (userCredential.user != null) {
+      // Verificamos que el usuario se haya creado correctamente
+      final user = userCredential.user;
+      if (user != null) {
+
+        // --- CAMBIO CLAVE: Actualizamos el perfil de Auth ---
+        // Esto guarda el nombre directamente en el objeto de usuario de Firebase.
+        // Es importante para que esté disponible en toda la app a través de `user.displayName`.
+        await user.updateDisplayName(_nameController.text.trim());
+
+        // 2. Creamos o actualizamos el documento del usuario en Firestore
+        // Esto guarda la información adicional como el género, la fecha de nacimiento, etc.
         await FirestoreService.createOrUpdateUserProfile(
-          userId: userCredential.user!.uid,
+          userId: user.uid,
           displayName: _nameController.text.trim(),
           additionalData: {
             'gender': _selectedGender,
             'birthDate': _selectedBirthDate,
             'termsAcceptedOn': Timestamp.now(),
-            'onboardingCompleted': false,
+            'onboardingCompleted': false, // Se establece en 'false' para activar el tutorial
+            'createdAt': Timestamp.now(), // Es buena práctica guardar la fecha de creación del perfil
           },
         );
+        
+        // 3. Redirigimos al usuario a la pantalla principal
+        // GoRouter se encargará de llevarlo a /home, y ModernHabitsScreen
+        // activará el tutorial porque 'onboardingCompleted' es false.
+        if (mounted) {
+          context.go('/home');
+        }
       }
-      
-      if (mounted) context.go('/onboarding');
-
     } on FirebaseAuthException catch (e) {
+      // Manejo de errores específicos de Firebase Auth
       if (mounted) {
         _showSnackBar(_getErrorMessage(e.code), AppColors.error);
       }
+    } catch (e) {
+      // Manejo de errores generales (ej. problemas de red con Firestore)
+      if (mounted) {
+        _showSnackBar('Ocurrió un error inesperado. Inténtalo de nuevo.', AppColors.error);
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      // Nos aseguramos de detener el indicador de carga, incluso si hay un error
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -485,6 +514,8 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
   }
   
   // Página 1: Información básica
+// En tu clase _SignUpScreenState (dentro de signup_screen.dart)
+
   Widget _buildPage1() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -558,13 +589,25 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
                     filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                     child: Column(
                       children: [
+                        // --- CAMBIO CLAVE AQUÍ ---
                         _buildTextField(
                           controller: _nameController,
                           focusNode: _nameFocusNode,
                           icon: Icons.person_rounded,
-                          label: 'Tu nombre',
-                          validator: (value) => 
-                            value!.isEmpty ? 'Ingresa tu nombre' : null,
+                          label: 'Tu nombre (máx. 8 caracteres)',
+                          // Le pasamos el formateador para limitar la longitud
+                          inputFormatters: [
+                            LengthLimitingTextInputFormatter(8),
+                          ],
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Ingresa tu nombre';
+                            }
+                            if (value.length > 8) {
+                              return 'El nombre no puede tener más de 8 caracteres';
+                            }
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 20),
                         _buildTextField(
@@ -737,6 +780,8 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
   }
   
   // Widgets auxiliares
+// En tu clase _SignUpScreenState (dentro de signup_screen.dart)
+
   Widget _buildTextField({
     required TextEditingController controller,
     required FocusNode focusNode,
@@ -747,15 +792,14 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
     bool isPassword = false,
     bool obscureText = false,
     VoidCallback? onToggleObscure,
+    List<TextInputFormatter>? inputFormatters, // <-- PARÁMETRO NUEVO
   }) {
     final bool isFocused = focusNode.hasFocus;
     final bool hasText = controller.text.isNotEmpty;
 
-    // CAMBIO CLAVE 1: Envolvemos todo en una Columna para poner el label arriba
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // CAMBIO CLAVE 2: Este es nuestro nuevo label externo, animado
         Padding(
           padding: const EdgeInsets.only(left: 20.0, bottom: 8.0),
           child: AnimatedOpacity(
@@ -772,8 +816,6 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
             ),
           ),
         ),
-        
-        // El campo de texto, ahora sin `labelText` y con `hintText`
         AnimatedContainer(
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeInOut,
@@ -802,20 +844,19 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
                 focusNode: focusNode,
                 keyboardType: keyboardType,
                 obscureText: obscureText,
+                inputFormatters: inputFormatters, // <-- APLICAMOS EL NUEVO PARÁMETRO
                 style: GoogleFonts.poppins(
                   color: Colors.white,
                   fontSize: 16,
                   fontWeight: FontWeight.w300,
                 ),
                 decoration: InputDecoration(
-                  // CAMBIO CLAVE 3: Usamos hintText que desaparece cuando el label de arriba aparece
                   hintText: isFocused || hasText ? '' : label,
                   hintStyle: GoogleFonts.poppins(
                     color: Colors.white.withOpacity(0.7),
-                    fontSize: 16, // Mismo tamaño que el texto
+                    fontSize: 16,
                     fontWeight: FontWeight.w300,
                   ),
-                  // Se eliminó labelText y labelStyle de aquí
                   prefixIcon: Icon(
                     icon,
                     color: Colors.white.withOpacity(0.7),
@@ -875,120 +916,162 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
     );
   }
   
+// En tu clase _SignUpScreenState (dentro de signup_screen.dart)
+
   Widget _buildGenderSelector() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-          child: DropdownButtonFormField<String>(
-            value: _selectedGender,
-            decoration: InputDecoration(
-              labelText: 'Género',
-              labelStyle: GoogleFonts.poppins(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 14,
-                fontWeight: FontWeight.w300,
-              ),
-              prefixIcon: Icon(
-                Icons.people_rounded,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.08),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(20),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 18,
-              ),
-            ),
-            dropdownColor: const Color(0xFF6B5B95),
+    // Envolvemos el widget en una Columna para añadir nuestro propio label
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Este es nuestro nuevo label externo, siempre visible
+        Padding(
+          padding: const EdgeInsets.only(left: 20.0, bottom: 8.0),
+          child: Text(
+            'Género',
             style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w300,
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
             ),
-            items: ['Masculino', 'Femenino', 'Otro', 'Prefiero no decir']
-                .map((label) => DropdownMenuItem(
-                  value: label,
-                  child: Text(label),
-                ))
-                .toList(),
-            onChanged: (value) {
-              HapticFeedback.selectionClick();
-              setState(() => _selectedGender = value);
-            },
-            validator: (value) => value == null ? 'Selecciona una opción' : null,
           ),
         ),
-      ),
-    );
-  }
-  
-  Widget _buildDatePicker() {
-    return GestureDetector(
-      onTap: () => _selectDate(context),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.2),
-            width: 1,
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.2),
+              width: 1,
+            ),
           ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: 'Fecha de nacimiento',
-                labelStyle: GoogleFonts.poppins(
-                  color: Colors.white.withOpacity(0.7),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w300,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+              child: DropdownButtonFormField<String>(
+                value: _selectedGender,
+                // --- CAMBIO CLAVE: Decoración sin 'labelText' ---
+                decoration: InputDecoration(
+                  // No usamos labelText para evitar el problema de overflow.
+                  // El hintText se mostrará solo si no hay nada seleccionado.
+                  hintText: 'Selecciona una opción',
+                  hintStyle: GoogleFonts.poppins(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w300,
+                  ),
+                  prefixIcon: Icon(
+                    Icons.people_rounded,
+                    color: Colors.white.withOpacity(0.7),
+                    size: 20,
+                  ),
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.08),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 18,
+                  ),
                 ),
-                prefixIcon: Icon(
-                  Icons.calendar_today_rounded,
-                  color: Colors.white.withOpacity(0.7),
-                  size: 20,
-                ),
-                filled: true,
-                fillColor: Colors.white.withOpacity(0.08),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 18,
-                ),
-              ),
-              child: Text(
-                _selectedBirthDate == null 
-                    ? '' 
-                    : DateFormat('dd/MM/yyyy').format(_selectedBirthDate!),
+                dropdownColor: const Color(0xFF6B5B95),
                 style: GoogleFonts.poppins(
                   color: Colors.white,
                   fontSize: 16,
                   fontWeight: FontWeight.w300,
                 ),
+                items: ['Masculino', 'Femenino', 'Otro', 'Prefiero no decir']
+                    .map((label) => DropdownMenuItem(
+                          value: label,
+                          child: Text(label),
+                        ))
+                    .toList(),
+                onChanged: (value) {
+                  HapticFeedback.selectionClick();
+                  setState(() => _selectedGender = value);
+                },
+                validator: (value) => value == null ? 'Selecciona una opción' : null,
               ),
             ),
           ),
         ),
-      ),
+      ],
+    );
+  }
+  
+// En tu clase _SignUpScreenState (dentro de signup_screen.dart)
+
+  Widget _buildDatePicker() {
+    // Envolvemos el widget en una Columna para añadir nuestro propio label
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Este es nuestro nuevo label externo, siempre visible
+        Padding(
+          padding: const EdgeInsets.only(left: 20.0, bottom: 8.0),
+          child: Text(
+            'Fecha de nacimiento',
+            style: GoogleFonts.poppins(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+        GestureDetector(
+          onTap: () => _selectDate(context),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.2),
+                width: 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                child: InputDecorator(
+                  // --- CAMBIO CLAVE: Decoración sin 'labelText' ---
+                  decoration: InputDecoration(
+                    // No usamos labelText para evitar el problema de overflow.
+                    prefixIcon: Icon(
+                      Icons.calendar_today_rounded,
+                      color: Colors.white.withOpacity(0.7),
+                      size: 20,
+                    ),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.08),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 18,
+                    ),
+                  ),
+                  child: Text(
+                    _selectedBirthDate == null 
+                        ? 'dd/mm/aaaa' // Usamos un placeholder en lugar de texto vacío
+                        : DateFormat('dd/MM/yyyy').format(_selectedBirthDate!),
+                    style: GoogleFonts.poppins(
+                      // Cambiamos el color si es un placeholder
+                      color: _selectedBirthDate == null
+                          ? Colors.white.withOpacity(0.7) 
+                          : Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
   
