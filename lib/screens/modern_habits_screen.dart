@@ -62,14 +62,15 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   // --- LÓGICA DE MOOD TRACKER ACTUALIZADA ---
   List<Map<String, dynamic>> _todaysMoods = [];
   // Nueva lista de moods con iconos y colores mejorados
+// En _ModernHabitsScreenState
   final List<Mood> moods = [
-    Mood(name: 'Feliz', icon: Icons.sentiment_very_satisfied_rounded, gradient: [const Color(0xFF4ADE80), const Color(0xFF22C55E)]),
-    Mood(name: 'Normal', icon: Icons.sentiment_satisfied_rounded, gradient: [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]),
-    Mood(name: 'Triste', icon: Icons.sentiment_very_dissatisfied_rounded, gradient: [const Color(0xFF94A3B8), const Color(0xFF64748B)]),
-    Mood(name: 'Enojado', icon: Icons.local_fire_department_rounded, gradient: [const Color(0xFFF87171), const Color(0xFFEF4444)]),
-    Mood(name: 'Estresado', icon: Icons.storm_rounded, gradient: [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]),
-    Mood(name: 'Motivado', icon: Icons.rocket_launch_rounded, gradient: [const Color(0xFFA78BFA), const Color(0xFF8B5CF6)]),
-  ];
+      Mood(name: 'Feliz', icon: Icons.sentiment_very_satisfied_rounded, gradient: [const Color(0xFF4ADE80), const Color(0xFF22C55E)]),
+      Mood(name: 'Normal', icon: Icons.sentiment_satisfied_rounded, gradient: [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]),
+      Mood(name: 'Triste', icon: Icons.sentiment_very_dissatisfied_rounded, gradient: [const Color(0xFF94A3B8), const Color(0xFF64748B)]),
+      Mood(name: 'Enojado', icon: Icons.local_fire_department_rounded, gradient: [const Color(0xFFF87171), const Color(0xFFEF4444)]),
+      Mood(name: 'Estresado', icon: Icons.storm_rounded, gradient: [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]),
+      Mood(name: 'Motivado', icon: Icons.rocket_launch_rounded, gradient: [const Color(0xFFA78BFA), const Color(0xFF8B5CF6)]),
+    ];
 
   late ScrollController _scrollController;
   double _scrollOffset = 0.0;
@@ -317,7 +318,14 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   @override
+@override
   Widget build(BuildContext context) {
+    // Primero, comprobamos si debemos mostrar la vista de bienvenida del coach
+    // en lugar de la pantalla principal.
+    if (_showCoachWelcome) {
+      return _buildCoachWelcomeView();
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: Stack(
@@ -332,11 +340,12 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
               slivers: [
                 _buildPremiumSliverAppBar(),
 
-                // --- CAMBIO CLAVE: La key se asigna a un Container (RenderBox) ---
-                // en lugar de al SliverToBoxAdapter directamente.
+                // --- CORRECCIÓN 1 ---
+                // La GlobalKey para el Mood Tracker se asigna aquí, fuera del método de construcción.
+                // Esto asegura que la llave esté en un lugar estable del árbol de widgets.
                 SliverToBoxAdapter(
                   child: Container(
-                    key: _moodTrackerKey,
+                    key: _moodTrackerKey, // <-- KEY ASIGNADA AQUÍ
                     child: _buildPremiumMoodTracker(),
                   ),
                 ),
@@ -345,18 +354,21 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                     child: _showTutorial
-                        // --- CAMBIO CLAVE: La key se asigna aquí también ---
+                        // --- CORRECCIÓN 2 (PARTE A) ---
+                        // Lo mismo para la tarjeta de progreso en modo tutorial.
                         ? Container(
-                            key: _progressCardKey,
+                            key: _progressCardKey, // <-- KEY ASIGNADA AQUÍ
                             child: _buildPremiumProgressCard([]),
                           )
                         : StreamBuilder<QuerySnapshot>(
                             stream: _allHabitsStream,
                             builder: (context, snapshot) {
                               final allHabits = snapshot.data?.docs ?? [];
-                              // --- CAMBIO CLAVE: Y aquí ---
+                              // --- CORRECCIÓN 2 (PARTE B) ---
+                              // Y también para la tarjeta de progreso en modo normal.
+                              // Al estar fuera del StreamBuilder, no se duplica.
                               return Container(
-                                key: _progressCardKey,
+                                key: _progressCardKey, // <-- KEY ASIGNADA AQUÍ
                                 child: _buildPremiumProgressCard(allHabits),
                               );
                             },
@@ -542,9 +554,9 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                   title: title,
                   text: text,
                   isLastStep: _tutorialStep == 2,
-                  onNext: () {
+                  onNext: () async {
                     // Acción final
-                    _completeTutorial();
+                    await _completeTutorial(); 
                     _showAddHabitBottomSheet();
                   },
                 ),
@@ -683,9 +695,9 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   Future<void> _completeTutorial() async {
     if (user == null) return;
     try {
-      await FirebaseFirestore.instance.collection('users').doc(user!.uid).update({
+      await FirebaseFirestore.instance.collection('users').doc(user!.uid).set({
         'onboardingCompleted': true,
-      });
+      }, SetOptions(merge: true));
       setState(() => _showTutorial = false);
     } catch (e) {
       print("Error al completar el tutorial: $e");
@@ -896,7 +908,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                       children: moods.map((mood) {
                         final isSelected = lastMoodName == mood.name;
                         return GestureDetector(
-                          onTap: () => _saveMood(mood.name),
+                          onTap: () => _saveMood(mood.name), // o onSaveMood(mood.name)
                           child: Column(
                             children: [
                               AnimatedScale(
@@ -916,12 +928,15 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              AnimatedOpacity(
-                                opacity: isSelected ? 1.0 : 0.0,
-                                duration: const Duration(milliseconds: 200),
-                                child: Text(
-                                  mood.name,
-                                  style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: mood.gradient.last),
+                              // --- CAMBIO CLAVE AQUÍ ---
+                              // El texto ahora siempre es visible, pero su estilo cambia.
+                              Text(
+                                mood.name,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                  // Si está seleccionado, usa el color del gradiente. Si no, un gris sutil.
+                                  color: isSelected ? mood.gradient.last : Colors.grey.shade500,
                                 ),
                               ),
                             ],
@@ -1527,8 +1542,14 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
 
   // TEMPORIZADOR
 
+// lib/screens/modern_habits_screen.dart
+
   void _startTimer(String habitId, int durationMinutes) {
-    _habitTimer?.cancel(); // Cancela cualquier timer anterior
+    // --- AÑADIMOS ESTA LÍNEA ---
+    // Inicia el servicio en segundo plano justo cuando se necesita.
+    FlutterBackgroundService().startService(); 
+    
+    _habitTimer?.cancel();
 
     setState(() {
       _activeTimerHabitId = habitId;
@@ -1541,7 +1562,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           _timerSecondsRemaining--;
         });
       } else {
-        // El temporizador terminó
         _habitTimer?.cancel();
         _completeTimedHabit(_activeTimerHabitId!);
         setState(() {
@@ -1551,7 +1571,13 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     });
   }
 
+// lib/screens/modern_habits_screen.dart
+
   void _stopTimer() {
+    // --- AÑADIMOS ESTA LÍNEA ---
+    // Le decimos al servicio que ya no es necesario y puede detenerse.
+    FlutterBackgroundService().invoke("stopService");
+
     _habitTimer?.cancel();
     setState(() {
       _activeTimerHabitId = null;
@@ -1560,7 +1586,13 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   // Y una función para marcar el hábito como completado
+// lib/screens/modern_habits_screen.dart
+
   Future<void> _completeTimedHabit(String habitId) async {
+    // --- AÑADIMOS ESTA LÍNEA ---
+    // El temporizador terminó, así que el servicio ya cumplió su función.
+    FlutterBackgroundService().invoke("stopService");
+
     if (user == null) return;
     HapticFeedback.heavyImpact();
     
@@ -1569,13 +1601,12 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     
     await habitRef.update({
       'completions.$todayKey': {
-        'progress': 1, // Para hábitos de tiempo, el progreso puede ser 1 (completado)
+        'progress': 1,
         'completed': true,
       }
     });
     _showSuccessSnackBar('¡Hábito completado! 💪');
   }
-  
   int _getStreakFromHabitsData(List<QueryDocumentSnapshot> habits) {
     if (habits.isEmpty) return 0;
     
@@ -1668,7 +1699,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           curve: const Interval(0.3, 1.0, curve: Curves.easeOut),
         )),
         child: Container(
-          key: _progressCardKey,
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             gradient: LinearGradient(

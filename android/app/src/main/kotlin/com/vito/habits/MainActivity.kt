@@ -1,4 +1,4 @@
-package com.example.vito_app
+package com.vito.habits
 
 import io.flutter.embedding.android.FlutterActivity
 

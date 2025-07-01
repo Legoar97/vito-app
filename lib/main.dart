@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -245,7 +246,8 @@ void main() async {
   await serviceNotificationsPlugin.initialize(initializationSettings);
   
   // Solicitar permisos de notificación para Android 13+
-  if (Theme.of(WidgetsBinding.instance.rootElement!).platform == TargetPlatform.android) {
+  // Usamos Platform.isAndroid que es la forma segura de verificar la plataforma.
+  if (Platform.isAndroid) { 
     final androidPlugin = serviceNotificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();

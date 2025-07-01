@@ -11,7 +11,7 @@ android {
     namespace = "com.vito.habits"
     
     // CORREGIDO: Valores explícitos para Android 13+ y notificaciones
-    compileSdk = 34
+    compileSdk = 35
     ndkVersion = "27.0.12077973"
     
     compileOptions {
@@ -31,7 +31,7 @@ android {
         minSdk = 23
         
         // CORREGIDO: targetSdk explícito para Android 14
-        targetSdk = 34
+        targetSdk = 35
         
         // Versiones de la app
         versionCode = flutter.versionCode
@@ -47,8 +47,10 @@ android {
         release {
             signingConfig = signingConfigs.getByName("debug")
             
-            // Opcional: configuración de optimización
-            minifyEnabled = false
+            // IMPORTANTE: Ambas opciones deben estar sincronizadas
+            isMinifyEnabled = false
+            isShrinkResources = false  // AÑADIDO: Explícitamente deshabilitado
+            
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -56,6 +58,9 @@ android {
         }
         debug {
             signingConfig = signingConfigs.getByName("debug")
+            // AÑADIDO: Asegurar que debug tampoco tenga problemas
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

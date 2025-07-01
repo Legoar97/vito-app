@@ -5,6 +5,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'firestore_service.dart'; 
@@ -62,20 +63,42 @@ class NotificationService {
     }
   }
 
+// lib/services/notification_service.dart
+
   static Future<void> scheduleHabitNotification({
     required String habitId,
     required String habitName,
     required TimeOfDay time,
     required List<int> days,
   }) async {
+    // Verificación de permisos (esto está bien)
+    if (await Permission.scheduleExactAlarm.request() != PermissionStatus.granted) {
+      print("Permiso para alarmas exactas fue denegado. No se puede programar la notificación.");
+      return;
+    }
+    
     final payload = jsonEncode({'habitId': habitId});
+
+    // El bucle `for` es donde definimos `day`
     for (final day in days) {
+      // --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
+      // Movemos la lógica para calcular la hora DENTRO del bucle,
+      // para que se calcule para cada día individualmente.
+      final scheduledTime = _nextInstanceOfWeekdayTime(day, time);
+      final reminderTime = scheduledTime.subtract(const Duration(minutes: 5));
+
+      // No programar si el recordatorio ya pasó para este día específico
+      if (reminderTime.isBefore(tz.TZDateTime.now(tz.local))) {
+        print("La hora del recordatorio para $habitName en el día $day ya pasó. Saltando.");
+        continue; // Pasa a la siguiente iteración del bucle
+      }
+      
       final id = habitId.hashCode + day;
       await _notifications.zonedSchedule(
         id,
-        'Hora de: $habitName',
-        '¡Mantén tu racha! Es momento de completar tu hábito.',
-        _nextInstanceOfWeekdayTime(day, time),
+        'En 5 minutos: $habitName',
+        '¡Prepárate! Tu hábito está por comenzar.',
+        reminderTime, // Usamos la hora corregida
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'habit_reminders',
@@ -83,13 +106,6 @@ class NotificationService {
             channelDescription: 'Notificaciones para tus hábitos diarios',
             importance: Importance.high,
             priority: Priority.high,
-            // ================== ¡CORRECCIÓN CLAVE #2! ==================
-            // Se elimina la línea 'icon: ...' de aquí.
-            // ¿Por qué? Para que la notificación use automáticamente el ícono por defecto
-            // que definimos arriba en 'initialize()'. Esto hace el código más limpio,
-            // seguro y consistente.
-            // ==========================================================
-            color: Color(0xFF6B5B95),
             sound: RawResourceAndroidNotificationSound('notification_sound'),
             actions: <AndroidNotificationAction>[AndroidNotificationAction('COMPLETE_ACTION', 'Marcar como completado')],
           ),
@@ -106,19 +122,26 @@ class NotificationService {
   // --- El resto de tu código está perfecto y no necesita cambios ---
 
   static Future<void> scheduleDailyMoodReminder() async {
+    // --- VERIFICAR Y PEDIR PERMISO ---
+    if (await Permission.scheduleExactAlarm.request() != PermissionStatus.granted) {
+      print("Permiso para alarmas exactas denegado. No se puede programar el recordatorio de ánimo.");
+      return;
+    }
+    
+    // Tu lógica existente para no reprogramar
     final prefs = await SharedPreferences.getInstance();
     final todayKey = 'mood_reminder_${DateFormat('yyyy-MM-dd').format(DateTime.now())}';
-
     if (prefs.getBool(todayKey) ?? false) {
       print('El recordatorio de ánimo para hoy ya fue programado.');
       return;
     }
-
+    
+    // El resto de tu código
     await _notifications.zonedSchedule(
       _moodReminderId,
       '¿Cómo te fue hoy? 💭',
       'Tómate un momento para registrar tu estado de ánimo en Vito.',
-      _nextInstanceOfTime(20, 0),
+      _nextInstanceOfTime(20, 0), // A las 8 PM
       const NotificationDetails(
         android: AndroidNotificationDetails(
           'mood_reminders',

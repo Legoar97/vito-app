@@ -60,12 +60,13 @@
         </activity>
         
         <!-- =================== SERVICIOS =================== -->
-        <!-- Servicio de fondo de flutter_background_service -->
+        <!-- CORRECCIÓN: Agregado tools:replace="android:exported" -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
-            android:stopWithTask="false"/>
+            android:stopWithTask="false"
+            tools:replace="android:exported"/>
         
         <!-- =================== RECEPTORES =================== -->
         <!-- Receptor para notificaciones programadas -->
@@ -104,7 +105,7 @@
         <!-- Ícono de notificación por defecto (opcional) -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@drawable/ic_notification"/>
+            android:resource="@drawable/ic_notification_icon"/>
     </application>
     
     <!-- Queries para compartir texto -->
