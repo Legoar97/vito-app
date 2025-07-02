@@ -1,22 +1,35 @@
 import 'package:flutter/material.dart';
 import 'modern_habits_screen.dart';
 import 'stats_screen.dart';
+import 'mood_tracker_screen.dart'; // Agregar import
 import 'ai_coach_screen.dart';
 import 'profile_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  final int initialIndex;
+  
+  const MainNavigationScreen({
+    super.key,
+    this.initialIndex = 0,
+  });
   
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _selectedIndex = 0;
+  late int _selectedIndex;
+  
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialIndex;
+  }
   
   final List<Widget> _screens = [
     const ModernHabitsScreen(),
     const StatsScreen(),
+    const MoodTrackerScreen(), // Añadir MoodTracker como pantalla principal
     const AICoachScreen(),
     const ProfileScreen(),
   ];
@@ -48,24 +61,29 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             showUnselectedLabels: false,
             items: const [
               BottomNavigationBarItem(
-                icon: Icon(Icons.spa_outlined), // Ícono más zen (hoja/spa)
-                activeIcon: Icon(Icons.spa_rounded, size: 30),
-                label: 'Home',
+                icon: Icon(Icons.spa_outlined),
+                activeIcon: Icon(Icons.spa_rounded, size: 28),
+                label: 'Hábitos',
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.insights_rounded),
-                activeIcon: Icon(Icons.insights_rounded, size: 30),
-                label: 'Stats',
+                icon: Icon(Icons.insights_outlined),
+                activeIcon: Icon(Icons.insights_rounded, size: 28),
+                label: 'Estadísticas',
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.auto_awesome_rounded),
-                activeIcon: Icon(Icons.auto_awesome_rounded, size: 30),
-                label: 'AI Coach',
+                icon: Icon(Icons.mood_outlined),
+                activeIcon: Icon(Icons.mood_rounded, size: 28),
+                label: 'Ánimo',
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.person_rounded),
-                activeIcon: Icon(Icons.person_rounded, size: 30),
-                label: 'Profile',
+                icon: Icon(Icons.auto_awesome_outlined),
+                activeIcon: Icon(Icons.auto_awesome_rounded, size: 28),
+                label: 'Coach IA',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.person_outline_rounded),
+                activeIcon: Icon(Icons.person_rounded, size: 28),
+                label: 'Perfil',
               ),
             ],
           ),

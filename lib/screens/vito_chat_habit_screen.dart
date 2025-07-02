@@ -345,7 +345,7 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
       
       if (!mounted) return;
       
-      _addVitoMessage('¡Listo! 🎉\n\nTu hábito "${_habitBuilder.name}" ha sido creado. ¡Vamos por ese cambio positivo! 💪', withTyping: false);
+      _addVitoMessage('¡Listo! ✅\n\nTu hábito "${_habitBuilder.name}" ha sido creado. ¡Vamos por ese cambio positivo! 💪', withTyping: false);
       
       // Esperamos un poco para que el usuario lea el mensaje y luego cerramos.
       Future.delayed(const Duration(seconds: 3), () {

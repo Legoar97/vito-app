@@ -16,6 +16,7 @@ import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/main_navigation_screen.dart';
 import 'screens/achievements_screen.dart';
+import 'screens/mood_tracker_screen.dart'; // Agregar import
 import 'theme/app_theme.dart';
 import 'providers/theme_provider.dart';
 import 'services/notification_service.dart';
@@ -308,9 +309,20 @@ final GoRouter _router = GoRouter(
     GoRoute(path: '/signup', builder: (context, state) => const SignUpScreen()),
     GoRoute(
       path: '/home',
-      builder: (context, state) => const MainNavigationScreen(),
+      builder: (context, state) => MainNavigationScreen(
+        // Pasar el índice inicial si viene de una navegación específica
+        initialIndex: state.extra as int? ?? 0,
+      ),
       routes: [
-        GoRoute(path: 'achievements', builder: (context, state) => const AchievementsScreen()),
+        GoRoute(
+          path: 'achievements', 
+          builder: (context, state) => const AchievementsScreen()
+        ),
+        // Ruta para MoodTracker como subruta de home
+        GoRoute(
+          path: 'mood-tracker',
+          builder: (context, state) => const MoodTrackerScreen(),
+        ),
       ],
     ),
   ],
