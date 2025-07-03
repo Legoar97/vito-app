@@ -84,6 +84,7 @@ coverage/
 # Credential files (no subir al repo)
 assets/service-account-key.json
 service-account-key.json
+android/app/google-services.json
 
 # Git LFS
 *.apk filter=lfs diff=lfs merge=lfs -text
@@ -91,5 +92,6 @@ service-account-key.json
 
 # Firebase
 lib/firebase_options.dart
+firebase.json
 
 # End of file
