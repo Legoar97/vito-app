@@ -26,7 +26,7 @@ class Mood {
 class MoodData {
   static final List<Mood> moods = [
     Mood(
-      name: 'Excelente',
+      name: 'Genial',
       expression: MoodExpression.excellent,
       baseColor: const Color(0xFFFFD93D),
       gradient: [const Color(0xFFFFD93D), const Color(0xFFFFC107)],

@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'dart:math' as math;
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../theme/app_colors.dart';
 import '../models/habit.dart';
@@ -34,8 +35,7 @@ class ModernHabitsScreen extends StatefulWidget {
   State<ModernHabitsScreen> createState() => _ModernHabitsScreenState();
 }
 
-class _ModernHabitsScreenState extends State<ModernHabitsScreen>
-    with TickerProviderStateMixin {
+class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProviderStateMixin {
   late AnimationController _animationController;
   late AnimationController _floatingAnimationController;
   late AnimationController _pulseAnimationController;
@@ -50,21 +50,9 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   }
 
   void _initializeAnimations() {
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    )..forward();
-
-    _floatingAnimationController = AnimationController(
-      duration: const Duration(seconds: 4),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _pulseAnimationController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat(reverse: true);
-
+    _animationController = AnimationController(duration: const Duration(milliseconds: 1200), vsync: this)..forward();
+    _floatingAnimationController = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat(reverse: true);
+    _pulseAnimationController = AnimationController(duration: const Duration(seconds: 2), vsync: this)..repeat(reverse: true);
     _scrollController = ScrollController()
       ..addListener(() {
         if (mounted) {
@@ -92,18 +80,17 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        // Tus controladores no reciben argumentos, así que los creamos vacíos.
         ChangeNotifierProvider(create: (_) => HabitsController()),
         ChangeNotifierProvider(create: (_) => TimerController()),
         ChangeNotifierProvider(create: (_) => TutorialController()),
       ],
       child: Consumer3<HabitsController, TimerController, TutorialController>(
         builder: (context, habitsCtrl, timerCtrl, tutorialCtrl, child) {
-          // Verificar el estado del tutorial
           if (tutorialCtrl.showTutorial == false && habitsCtrl.userName.isNotEmpty) {
             tutorialCtrl.checkOnboardingStatus();
           }
 
-          // Mostrar pantalla de bienvenida del coach si es necesario
           if (habitsCtrl.showCoachWelcome) {
             return CoachWelcomeView(
               animationController: _animationController,
@@ -123,7 +110,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
                   TutorialOverlay(
                     controller: tutorialCtrl,
                     userName: habitsCtrl.userName,
-                    onComplete: () => _showAddHabitBottomSheet(),
+                    onComplete: _showAddHabitBottomSheet,
                   ),
               ],
             ),
@@ -137,17 +124,11 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     );
   }
 
-  Widget _buildMainContent(
-    HabitsController habitsCtrl,
-    TimerController timerCtrl,
-    TutorialController tutorialCtrl,
-  ) {
+  Widget _buildMainContent(HabitsController habitsCtrl, TimerController timerCtrl, TutorialController tutorialCtrl) {
     return AbsorbPointer(
       absorbing: tutorialCtrl.showTutorial,
       child: CustomScrollView(
-        physics: tutorialCtrl.showTutorial
-            ? const NeverScrollableScrollPhysics()
-            : const BouncingScrollPhysics(),
+        physics: tutorialCtrl.showTutorial ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
         controller: _scrollController,
         slivers: [
           HabitsAppBar(
@@ -160,7 +141,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
             greeting: habitsCtrl.getGreeting(),
             quote: habitsCtrl.getMotivationalQuote(),
           ),
-          
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -170,63 +150,114 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
               ),
             ),
           ),
-          
-          if (habitsCtrl.isLoadingSuggestions)
-            _buildLoadingSuggestionsIndicator(),
-          
+          if (habitsCtrl.isLoadingSuggestions) _buildLoadingSuggestionsIndicator(),
           if (habitsCtrl.suggestedHabits.isNotEmpty)
             SuggestionsSection(
               suggestions: habitsCtrl.suggestedHabits,
               animationController: _animationController,
-              onAddHabit: (habit) => _addSuggestedHabitWithForm(habit),
+              onAddHabit: _addSuggestedHabitWithForm,
               onDismiss: habitsCtrl.clearSuggestions,
             ),
-          
           _buildHabitsListHeader(habitsCtrl),
-          
           _buildHabitsList(habitsCtrl, timerCtrl, tutorialCtrl),
-          
-          const SliverToBoxAdapter(
-            child: SizedBox(height: 120),
-          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 120)),
         ],
       ),
     );
   }
 
-  Widget _buildProgressSection(
-    HabitsController habitsCtrl,
-    TutorialController tutorialCtrl,
-  ) {
-    if (tutorialCtrl.showTutorial) {
-      return ProgressCard(
-        allHabits: [],
-        totalHabits: 0,
-        completedHabits: 0,
-        progress: 0.0,
-        streak: 0,
-        animationController: _animationController,
-      );
-    }
-
+  Widget _buildProgressSection(HabitsController habitsCtrl, TutorialController tutorialCtrl) {
     return StreamBuilder<QuerySnapshot>(
       stream: habitsCtrl.allHabitsStream,
       builder: (context, snapshot) {
         final allHabits = snapshot.data?.docs ?? [];
+        
+        // --- LLAMADA A PROGRESSCARD CORREGIDA ---
+        if (tutorialCtrl.showTutorial) {
+          return ProgressCard(
+            allHabits: const [], // Se pasa una lista vacía
+            totalHabits: 0,
+            completedHabits: 0,
+            progress: 0.0,
+            streak: 0,
+            animationController: _animationController,
+          );
+        }
+
         final progressData = habitsCtrl.getProgressForSelectedDay(allHabits);
         final streak = habitsCtrl.getStreakFromHabitsData(allHabits);
 
         return ProgressCard(
           allHabits: allHabits,
-          totalHabits: progressData['total'],
-          completedHabits: progressData['completed'],
-          progress: progressData['progress'],
+          totalHabits: progressData['total'] ?? 0,
+          completedHabits: progressData['completed'] ?? 0,
+          progress: progressData['progress'] ?? 0.0,
           streak: streak,
           animationController: _animationController,
         );
       },
     );
   }
+
+  Widget _buildHabitsList(HabitsController habitsCtrl, TimerController timerCtrl, TutorialController tutorialCtrl) {
+    if (tutorialCtrl.showTutorial) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: habitsCtrl.allHabitsStream,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SliverToBoxAdapter(child: Center(child: CircularProgressIndicator()));
+        }
+
+        final allHabits = snapshot.data!.docs;
+        final habitsForDay = habitsCtrl.getHabitsForSelectedDay(allHabits);
+
+        if (habitsForDay.isEmpty) {
+          return _buildEmptyHabitsMessage();
+        }
+
+        return SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final habitDoc = habitsForDay[index];
+              final data = habitDoc.data() as Map<String, dynamic>;
+              
+              return TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: Duration(milliseconds: 400 + (index * 100)),
+                curve: Curves.easeOutBack,
+                builder: (context, value, child) {
+                  return Transform.translate(
+                    offset: Offset(0, 30 * (1 - value)),
+                    child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
+                  );
+                },
+                child: HabitCardFactory.buildHabitCard(
+                  habitId: habitDoc.id,
+                  data: data,
+                  selectedDate: habitsCtrl.selectedDate,
+                  onToggleSimple: habitsCtrl.toggleSimpleHabit,
+                  // --- LLAMADA FINAL Y CORRECTA ---
+                  // Se pasa directamente la función del controlador que ahora solo pide (habitId, change)
+                  onUpdateQuantifiable: habitsCtrl.updateQuantifiableProgress,
+                  onStartTimer: timerCtrl.startTimer,
+                  onStopTimer: timerCtrl.stopTimer,
+                  onLongPress: _showEditHabitBottomSheet,
+                  activeTimerHabitId: timerCtrl.activeTimerHabitId,
+                  timerSecondsRemaining: timerCtrl.timerSecondsRemaining,
+                ),
+              );
+            },
+            childCount: habitsForDay.length,
+          ),
+        );
+      },
+    );
+  }
+  
+  // --- WIDGETS Y FUNCIONES AUXILIARES (COMPLETOS Y SIN DUPLICADOS) ---
 
   SliverToBoxAdapter _buildLoadingSuggestionsIndicator() {
     return SliverToBoxAdapter(
@@ -238,34 +269,14 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withOpacity(0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
+              boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10))],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppColors.primary,
-                  ),
-                ),
+                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
                 const SizedBox(width: 12),
-                Text(
-                  'Vito está pensando...',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.primary,
-                  ),
-                ),
+                Text('Vito está pensando...', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.primary)),
               ],
             ),
           ),
@@ -278,101 +289,17 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 28, 20, 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    habitsCtrl.isSameDay(habitsCtrl.selectedDate, DateTime.now())
-                        ? "Hábitos de hoy"
-                        : "Hábitos del ${DateFormat('d MMM', 'es_ES').format(habitsCtrl.selectedDate)}",
-                    style: GoogleFonts.poppins(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF1E293B),
-                    ),
-                  ),
-                  Text(
-                    'Toca para completar',
-                    style: GoogleFonts.poppins(
-                      fontSize: 14,
-                      color: const Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
+            Text(
+              habitsCtrl.isSameDay(habitsCtrl.selectedDate, DateTime.now()) ? "Hábitos de hoy" : "Hábitos del ${DateFormat('d MMM', 'es_ES').format(habitsCtrl.selectedDate)}",
+              style: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
             ),
+            Text('Toca para completar', style: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF64748B))),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildHabitsList(
-    HabitsController habitsCtrl,
-    TimerController timerCtrl,
-    TutorialController tutorialCtrl,
-  ) {
-    if (tutorialCtrl.showTutorial) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
-    }
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: habitsCtrl.allHabitsStream,
-      builder: (context, snapshot) {
-        final allHabits = snapshot.data?.docs ?? [];
-        final habitsForDay = habitsCtrl.getHabitsForSelectedDay(allHabits);
-
-        if (habitsForDay.isEmpty) {
-          return _buildEmptyHabitsMessage();
-        }
-
-        return SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final habit = habitsForDay[index];
-              final data = habit.data() as Map<String, dynamic>;
-              
-              return TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.0, end: 1.0),
-                duration: Duration(milliseconds: 400 + (index * 100)),
-                curve: Curves.easeOutBack,
-                builder: (context, value, child) {
-                  return Transform.translate(
-                    offset: Offset(0, 30 * (1 - value)),
-                    child: Opacity(
-                      opacity: value,
-                      child: child,
-                    ),
-                  );
-                },
-                child: HabitCardFactory.buildHabitCard(
-                  habitId: habit.id,
-                  data: data,
-                  selectedDate: habitsCtrl.selectedDate,
-                  onToggleSimple: (id, completed) async {
-                    await habitsCtrl.toggleSimpleHabit(id, completed);
-                    if (!completed && mounted) {
-                      HapticFeedback.heavyImpact();
-                      _showSuccessSnackBar('¡Hábito completado! ✅');
-                    }
-                  },
-                  onUpdateQuantifiable: habitsCtrl.updateQuantifiableProgress,
-                  onStartTimer: timerCtrl.startTimer,
-                  onStopTimer: timerCtrl.stopTimer,
-                  onEdit: _showEditHabitBottomSheet,
-                  activeTimerHabitId: timerCtrl.activeTimerHabitId,
-                  timerSecondsRemaining: timerCtrl.timerSecondsRemaining,
-                ),
-              );
-            },
-            childCount: habitsForDay.length,
-          ),
-        );
-      },
     );
   }
 
@@ -385,35 +312,14 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.event_available,
-                  size: 40,
-                  color: Colors.grey[400],
-                ),
+                width: 80, height: 80,
+                decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
+                child: Icon(Icons.event_available, size: 40, color: Colors.grey[400]),
               ),
               const SizedBox(height: 20),
-              Text(
-                'No hay hábitos para este día',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey[600],
-                ),
-              ),
+              Text('No hay hábitos para este día', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w500, color: Colors.grey[600])),
               const SizedBox(height: 8),
-              Text(
-                'Agrega uno nuevo para empezar',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: Colors.grey[500],
-                ),
-              ),
+              Text('Agrega uno nuevo para empezar', style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[500])),
             ],
           ),
         ),
@@ -423,8 +329,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
 
   Widget _buildIdeaChip(HabitsController habitsCtrl) {
     return Positioned(
-      bottom: 95,
-      right: 20,
+      bottom: 95, right: 20,
       child: GestureDetector(
         onTap: () {
           HapticFeedback.lightImpact();
@@ -433,8 +338,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           habitsCtrl.getAiHabitSuggestions(randomCategory);
         },
         child: Material(
-          color: Colors.white,
-          elevation: 6,
+          color: Colors.white, elevation: 6,
           shadowColor: AppColors.primary.withOpacity(0.2),
           borderRadius: BorderRadius.circular(30),
           child: Padding(
@@ -444,13 +348,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
               children: [
                 Icon(Icons.lightbulb_outline, color: AppColors.primary, size: 20),
                 const SizedBox(width: 8),
-                Text(
-                  'Ideas',
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
-                  ),
-                ),
+                Text('Ideas', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: AppColors.primary)),
               ],
             ),
           ),
@@ -468,18 +366,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
           child: Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [AppColors.primary, AppColors.primary.withOpacity(0.8)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withOpacity(0.3),
-                  blurRadius: 20 + (_pulseAnimationController.value * 10),
-                  offset: const Offset(0, 10),
-                ),
-              ],
+              gradient: LinearGradient(colors: [AppColors.primary, AppColors.primary.withOpacity(0.8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+              boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 20 + (_pulseAnimationController.value * 10), offset: const Offset(0, 10))],
             ),
             child: FloatingActionButton(
               onPressed: _showAddHabitBottomSheet,
@@ -492,44 +380,30 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       },
     );
   }
-
+  
   void _showAddHabitBottomSheet() {
     HapticFeedback.lightImpact();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => const VitoChatHabitSheet(),
-    );
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => const VitoChatHabitSheet());
   }
 
   void _addSuggestedHabitWithForm(SuggestedHabit habit) {
     HapticFeedback.lightImpact();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => VitoChatHabitSheet(
-        initialMessage: habit.name,
-      ),
-    ).then((_) {
-      if (mounted) {
-        final habitsCtrl = context.read<HabitsController>();
-        habitsCtrl.removeSuggestion(habit);
-      }
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => VitoChatHabitSheet(initialMessage: habit.name))
+        .then((_) {
+      if (mounted) context.read<HabitsController>().removeSuggestion(habit);
     });
   }
 
   void _showEditHabitBottomSheet(String habitId, Map<String, dynamic> data) {
+    // --- CONSTRUCTOR CORREGIDO SIN 'fromMap' ---
+    // Se construye el objeto Habit directamente con su constructor por defecto.
     final timeData = data['specificTime'] as Map<String, dynamic>? ?? {'hour': 12, 'minute': 0};
-    final time = TimeOfDay(hour: timeData['hour'], minute: timeData['minute']);
-
     final habit = Habit(
       id: habitId,
       name: data['name'] ?? 'Sin nombre',
       category: data['category'] ?? 'health',
       days: List<int>.from(data['days'] ?? []),
-      specificTime: time,
+      specificTime: TimeOfDay(hour: timeData['hour'], minute: timeData['minute']),
       notifications: data['notifications'] ?? false,
       createdAt: data['createdAt'] as Timestamp? ?? Timestamp.now(),
       currentStreak: data['currentStreak'] as int? ?? 0,
@@ -539,32 +413,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen>
       targetValue: data['targetValue'] as int?,
       unit: data['unit'] as String?,
     );
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => VitoChatHabitSheet(habit: habit),
-    );
-  }
-
-  void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 12),
-            Text(message, style: const TextStyle(fontWeight: FontWeight.w500)),
-          ],
-        ),
-        backgroundColor: AppColors.success,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => VitoChatHabitSheet(habit: habit));
   }
 }

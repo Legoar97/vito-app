@@ -28,9 +28,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   
   final List<Widget> _screens = [
     const ModernHabitsScreen(),
-    const StatsScreen(),
-    const MoodTrackerScreen(), // Añadir MoodTracker como pantalla principal
+    const MoodTrackerScreen(),
     const AICoachScreen(),
+    const StatsScreen(),
     const ProfileScreen(),
   ];
   
@@ -66,19 +66,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 label: 'Hábitos',
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.insights_outlined),
-                activeIcon: Icon(Icons.insights_rounded, size: 28),
-                label: 'Estadísticas',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.mood_outlined),
-                activeIcon: Icon(Icons.mood_rounded, size: 28),
+                icon: Icon(Icons.book_rounded),
+                activeIcon: Icon(Icons.book_rounded, size: 28),
                 label: 'Ánimo',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.auto_awesome_outlined),
                 activeIcon: Icon(Icons.auto_awesome_rounded, size: 28),
                 label: 'Coach IA',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.insights_outlined),
+                activeIcon: Icon(Icons.insights_rounded, size: 28),
+                label: 'Estadísticas',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.person_outline_rounded),

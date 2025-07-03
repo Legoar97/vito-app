@@ -10,46 +10,51 @@ class HabitCardFactory {
     required String habitId,
     required Map<String, dynamic> data,
     required DateTime selectedDate,
+    // Callbacks
     required Function(String, bool) onToggleSimple,
-    required Function(String, int, int, int) onUpdateQuantifiable,
+    required Function(String, int) onUpdateQuantifiable,
     required Function(String, int) onStartTimer,
     required Function() onStopTimer,
-    required Function(String, Map<String, dynamic>) onEdit,
+    required Function(String, Map<String, dynamic>) onLongPress,
+    // State
     required String? activeTimerHabitId,
     required int timerSecondsRemaining,
   }) {
     final habitType = data['type'] as String? ?? 'simple';
-    
+
     switch (habitType) {
       case 'quantifiable':
         return QuantifiableHabitCard(
+          key: ValueKey('quant-$habitId'),
           habitId: habitId,
           data: data,
           selectedDate: selectedDate,
           onUpdateProgress: onUpdateQuantifiable,
-          onEdit: onEdit,
+          onLongPress: onLongPress,
         );
-        
+
       case 'timed':
         return TimedHabitCard(
+          key: ValueKey('timed-$habitId'),
           habitId: habitId,
           data: data,
           selectedDate: selectedDate,
           onStartTimer: onStartTimer,
           onStopTimer: onStopTimer,
-          onEdit: onEdit,
+          onLongPress: onLongPress,
           isTimerActive: activeTimerHabitId == habitId,
           timerSecondsRemaining: timerSecondsRemaining,
         );
-        
+
       case 'simple':
       default:
         return SimpleHabitCard(
+          key: ValueKey('simple-$habitId'),
           habitId: habitId,
           data: data,
           selectedDate: selectedDate,
           onToggle: onToggleSimple,
-          onEdit: onEdit,
+          onLongPress: onLongPress,
         );
     }
   }

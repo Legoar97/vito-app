@@ -20,38 +20,46 @@ class MoodItem extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Column(
+        // Añadido para centrar el contenido verticalmente, lo cual es bueno
+        // cuando se usa Flexible.
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          AnimatedScale(
-            scale: isSelected ? 1.15 : 1.0,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutBack,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: EdgeInsets.all(isSelected ? 14 : 12),
-              decoration: BoxDecoration(
-                gradient: isSelected 
-                    ? LinearGradient(
-                        colors: mood.gradient,
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ) 
-                    : null,
-                color: isSelected ? null : Colors.grey.shade100,
-                shape: BoxShape.circle,
-                boxShadow: isSelected 
-                    ? [
-                        BoxShadow(
-                          color: mood.gradient.first.withOpacity(0.4),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
+          // ¡AQUÍ ESTÁ LA SOLUCIÓN!
+          // Flexible permite que el ícono se adapte al espacio disponible,
+          // evitando que desborde cuando la animación lo hace más grande.
+          Flexible(
+            child: AnimatedScale(
+              scale: isSelected ? 1.15 : 1.0,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutBack,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: EdgeInsets.all(isSelected ? 14 : 12),
+                decoration: BoxDecoration(
+                  gradient: isSelected
+                      ? LinearGradient(
+                          colors: mood.gradient,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         )
-                      ] 
-                    : [],
-              ),
-              child: CuteMoodIcon(
-                color: isSelected ? Colors.white : mood.baseColor,
-                expression: mood.expression,
-                size: 26,
+                      : null,
+                  color: isSelected ? null : Colors.grey.shade100,
+                  shape: BoxShape.circle,
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: mood.gradient.first.withOpacity(0.4),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          )
+                        ]
+                      : [],
+                ),
+                child: CuteMoodIcon(
+                  color: isSelected ? Colors.white : mood.baseColor,
+                  expression: mood.expression,
+                  size: 26,
+                ),
               ),
             ),
           ),

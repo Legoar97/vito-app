@@ -1,3 +1,4 @@
+// File: lib/services/vertex_ai_service.dart
 import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:googleapis_auth/auth_io.dart';
@@ -287,6 +288,30 @@ class VertexAIService {
     final contents = [{'role': 'user', 'parts': [{'text': userContextPrompt}]}];
     
     return _generateContent(systemPrompt, contents, forceJsonOutput: true);
+  }
+
+  static Future<String> generateResponse(String prompt) async {
+    final systemPrompt = '''
+$vitoCorePersonaPrompt
+
+Responde de forma breve y empática al siguiente prompt, manteniendo siempre tu personalidad como Vito.
+Máximo 2-3 líneas de respuesta.
+''';
+
+    final contents = [
+      {
+        'role': 'user',
+        'parts': [{'text': prompt}]
+      }
+    ];
+
+    try {
+      final response = await _generateContent(systemPrompt, contents);
+      return response.trim();
+    } catch (e) {
+      print('Error generando respuesta: $e');
+      throw Exception('No se pudo generar la respuesta');
+    }
   }
 
   // =======================================================================

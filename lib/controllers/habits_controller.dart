@@ -1,24 +1,24 @@
-// lib/screens/habits/controllers/habits_controller.dart
+// lib/controllers/habits_controller.dart
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../models/suggested_habit.dart';
 
 class HabitsController extends ChangeNotifier {
   final User? user = FirebaseAuth.instance.currentUser;
-  
+
   // Estado
   DateTime _selectedDate = DateTime.now();
   bool _isLoadingSuggestions = false;
   List<SuggestedHabit> _suggestedHabits = [];
   bool _showCoachWelcome = false;
   String _userName = '';
-  List<Map<String, dynamic>> _todaysMoods = [];
-  
+
   // Streams
   Stream<QuerySnapshot>? _allHabitsStream;
-  
+
   // Getters
   DateTime get selectedDate => _selectedDate;
   bool get isLoadingSuggestions => _isLoadingSuggestions;
@@ -26,19 +26,18 @@ class HabitsController extends ChangeNotifier {
   bool get showCoachWelcome => _showCoachWelcome;
   String get userName => _userName;
   Stream<QuerySnapshot>? get allHabitsStream => _allHabitsStream;
-  List<Map<String, dynamic>> get todaysMoods => _todaysMoods;
-  
+
   HabitsController() {
     _initialize();
   }
-  
+
   void _initialize() {
     if (user != null) {
       _initializeStream();
       _loadUserNameAndOnboarding();
     }
   }
-  
+
   void _initializeStream() {
     _allHabitsStream = FirebaseFirestore.instance
         .collection('users')
@@ -47,7 +46,7 @@ class HabitsController extends ChangeNotifier {
         .snapshots();
     notifyListeners();
   }
-  
+
   Future<void> _loadUserNameAndOnboarding() async {
     if (user == null) return;
     
@@ -56,15 +55,9 @@ class HabitsController extends ChangeNotifier {
       _userName = displayName.split(' ').first;
     } else {
       try {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user!.uid)
-            .get();
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
         if (userDoc.exists) {
-          _userName = (userDoc.data()?['displayName'] as String?)
-                  ?.split(' ')
-                  .first ??
-              'amigo';
+          _userName = (userDoc.data()?['displayName'] as String?)?.split(' ').first ?? 'amigo';
         }
       } catch (e) {
         _userName = '';
@@ -74,37 +67,32 @@ class HabitsController extends ChangeNotifier {
     notifyListeners();
     await _checkIfFirstTime();
   }
-  
+
   Future<void> _checkIfFirstTime() async {
     if (user == null) return;
     await Future.delayed(const Duration(seconds: 1));
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user!.uid)
-        .collection('habits')
-        .limit(1)
-        .get();
+    final snapshot = await FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').limit(1).get();
     if (snapshot.docs.isEmpty) {
       _showCoachWelcome = true;
       notifyListeners();
     }
   }
-  
+
   void updateSelectedDate(DateTime date) {
     _selectedDate = date;
     notifyListeners();
   }
-  
+
   void navigatePreviousDay() {
     _selectedDate = _selectedDate.subtract(const Duration(days: 1));
     notifyListeners();
   }
-  
+
   void navigateNextDay() {
     _selectedDate = _selectedDate.add(const Duration(days: 1));
     notifyListeners();
   }
-  
+
   Future<void> getAiHabitSuggestions(String category) async {
     _isLoadingSuggestions = true;
     _suggestedHabits = [];
@@ -114,96 +102,83 @@ class HabitsController extends ChangeNotifier {
     await Future.delayed(const Duration(seconds: 2));
     
     final Map<String, List<String>> mockSuggestions = {
-      'Salud': [
-        'Beber un vaso de agua',
-        'Estirar por 10 minutos',
-        'Caminar 15 minutos'
-      ],
-      'Mente': [
-        'Meditar 5 minutos',
-        'Escribir un diario',
-        'Leer 10 minutos'
-      ],
-      'Trabajo': [
-        'Organizar tu escritorio',
-        'Planificar tus 3 tareas más importantes',
-        'Tomar un descanso de 5 min'
-      ],
-      'Creativo': [
-        'Dibujar algo simple',
-        'Escuchar música nueva',
-        'Escribir una idea'
-      ],
-      'Finanzas': [
-        'Anotar gastos del día',
-        'Revisar tu presupuesto',
-        'Aprender un término financiero'
-      ],
+      'Salud': ['Beber un vaso de agua', 'Estirar por 10 minutos', 'Caminar 15 minutos'],
+      'Mente': ['Meditar 5 minutos', 'Escribir un diario', 'Leer 10 minutos'],
+      'Trabajo': ['Organizar tu escritorio', 'Planificar tus 3 tareas más importantes', 'Tomar un descanso de 5 min'],
+      'Creativo': ['Dibujar algo simple', 'Escuchar música nueva', 'Escribir una idea'],
+      'Finanzas': ['Anotar gastos del día', 'Revisar tu presupuesto', 'Aprender un término financiero'],
     };
     
     final suggestions = mockSuggestions[category] ?? [];
-    _suggestedHabits = suggestions
-        .map((name) => SuggestedHabit(name: name, category: category))
-        .toList();
+    _suggestedHabits = suggestions.map((name) => SuggestedHabit(name: name, category: category)).toList();
     _isLoadingSuggestions = false;
     _showCoachWelcome = false;
     notifyListeners();
   }
-  
+
   void removeSuggestion(SuggestedHabit habit) {
     _suggestedHabits.remove(habit);
     notifyListeners();
   }
-  
+
   void clearSuggestions() {
     _suggestedHabits = [];
     notifyListeners();
   }
-  
+
   void dismissCoachWelcome() {
     _showCoachWelcome = false;
     notifyListeners();
   }
-  
+
   Future<void> toggleSimpleHabit(String habitId, bool isCurrentlyCompleted) async {
     if (user == null) return;
     
     final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    final habitRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user!.uid)
-        .collection('habits')
-        .doc(habitId);
+    final habitRef = FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').doc(habitId);
     
-    await habitRef.update({
-      'completions.$todayKey': {
-        'progress': isCurrentlyCompleted ? 0 : 1,
-        'completed': !isCurrentlyCompleted,
+    await habitRef.set({
+      'completions': {
+        todayKey: {
+          'progress': isCurrentlyCompleted ? 0 : 1,
+          'completed': !isCurrentlyCompleted,
+        }
       }
-    });
+    }, SetOptions(merge: true));
   }
   
-  Future<void> updateQuantifiableProgress(
-      String habitId, int currentProgress, int target, int change) async {
-    if (!isSameDay(_selectedDate, DateTime.now()) || user == null) return;
-    
-    final newProgress = (currentProgress + change).clamp(0, target);
-    if (newProgress == currentProgress) return;
-    
-    final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user!.uid)
-        .collection('habits')
-        .doc(habitId)
-        .update({
-      'completions.$todayKey': {
-        'progress': newProgress,
-        'completed': newProgress >= target,
-      }
+  // --- FUNCIÓN CORREGIDA Y SIMPLIFICADA ---
+  Future<void> updateQuantifiableProgress(String habitId, int change) async {
+    if (user == null || !isSameDay(_selectedDate, DateTime.now())) return;
+
+    final habitRef = FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').doc(habitId);
+
+    // Usamos una transacción para evitar problemas de concurrencia
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final habitSnapshot = await transaction.get(habitRef);
+      if (!habitSnapshot.exists) return;
+
+      final data = habitSnapshot.data() as Map<String, dynamic>;
+      final target = data['targetValue'] as int? ?? 1;
+      final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      
+      final completions = data['completions'] as Map<String, dynamic>? ?? {};
+      final currentProgress = (completions[todayKey]?['progress'] as int?) ?? 0;
+
+      final newProgress = (currentProgress + change).clamp(0, target);
+
+      // Actualizamos el documento dentro de la transacción
+      transaction.set(habitRef, {
+        'completions': {
+          todayKey: {
+            'progress': newProgress,
+            'completed': newProgress >= target,
+          }
+        }
+      }, SetOptions(merge: true));
     });
   }
-  
+
   int getStreakFromHabitsData(List<QueryDocumentSnapshot> habits) {
     if (habits.isEmpty) return 0;
     
@@ -221,7 +196,7 @@ class HabitsController extends ChangeNotifier {
             final date = DateFormat('yyyy-MM-dd').parse(entry.key);
             allCompletionDates.add(date);
           } catch (e) {
-            // Ignorar fechas con formato incorrecto
+            // Ignorar
           }
         }
       }
@@ -236,8 +211,7 @@ class HabitsController extends ChangeNotifier {
     var now = DateTime.now();
     var checkDate = DateTime(now.year, now.month, now.day);
     
-    if (allScheduledWeekdays.contains(checkDate.weekday) &&
-        !allCompletionDates.contains(checkDate)) {
+    if (allScheduledWeekdays.contains(checkDate.weekday) && !allCompletionDates.contains(checkDate)) {
       checkDate = checkDate.subtract(const Duration(days: 1));
     }
     
@@ -254,8 +228,7 @@ class HabitsController extends ChangeNotifier {
     return streak;
   }
   
-  Map<String, dynamic> getProgressForSelectedDay(
-      List<QueryDocumentSnapshot> allHabits) {
+  Map<String, dynamic> getProgressForSelectedDay(List<QueryDocumentSnapshot> allHabits) {
     int totalHabitsForSelectedDay = 0;
     int completedOnSelectedDay = 0;
     
@@ -278,14 +251,11 @@ class HabitsController extends ChangeNotifier {
     return {
       'total': totalHabitsForSelectedDay,
       'completed': completedOnSelectedDay,
-      'progress': totalHabitsForSelectedDay > 0
-          ? completedOnSelectedDay / totalHabitsForSelectedDay
-          : 0.0,
+      'progress': totalHabitsForSelectedDay > 0 ? completedOnSelectedDay / totalHabitsForSelectedDay : 0.0,
     };
   }
   
-  List<QueryDocumentSnapshot> getHabitsForSelectedDay(
-      List<QueryDocumentSnapshot> allHabits) {
+  List<QueryDocumentSnapshot> getHabitsForSelectedDay(List<QueryDocumentSnapshot> allHabits) {
     return allHabits.where((doc) {
       final data = doc.data() as Map<String, dynamic>?;
       final days = List<int>.from(data?['days'] ?? []);
@@ -306,40 +276,8 @@ class HabitsController extends ChangeNotifier {
   }
   
   String getMotivationalQuote() {
-    final quotes = [
-      'Un pequeño paso hoy es un gran salto mañana.',
-      'La constancia es la clave del éxito.',
-      'Tu mejor versión te está esperando.',
-      'Cree en el poder de tus hábitos.',
-      'Cada día es una nueva oportunidad para mejorar.',
-      'La disciplina es el puente entre metas y logros.',
-      'El progreso, no la perfección, es lo que importa.',
-      'Eres más fuerte de lo que piensas.',
-      'Siembra un hábito, cosecha un futuro.',
-      'La acción más pequeña es mejor que la intención más grande.',
-      'Enfócate en el progreso, no en los resultados.',
-      'Tu futuro se crea por lo que haces hoy.',
-      'Confía en el proceso de tu crecimiento.',
-      'La paciencia y la perseverancia tienen un efecto mágico.',
-      'Transforma tus rutinas para transformar tu vida.'
-    ];
-    
+    final quotes = ['Un pequeño paso hoy es un gran salto mañana.', 'La constancia es la clave del éxito.', 'Tu mejor versión te está esperando.'];
     final dayOfYear = int.parse(DateFormat("D").format(DateTime.now()));
-    final quoteIndex = dayOfYear % quotes.length;
-    
-    return quotes[quoteIndex];
+    return quotes[dayOfYear % quotes.length];
   }
-  
-  @override
-  void dispose() {
-    super.dispose();
-  }
-}
-
-// Modelo para las sugerencias
-class SuggestedHabit {
-  final String name;
-  final String category;
-  
-  SuggestedHabit({required this.name, required this.category});
 }
