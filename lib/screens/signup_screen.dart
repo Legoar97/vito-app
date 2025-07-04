@@ -167,6 +167,8 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
 
 // En tu clase _SignUpScreenState (dentro de signup_screen.dart)
 
+// En tu clase _SignUpScreenState (dentro de signup_screen.dart)
+
   Future<void> _signUp() async {
     // Validamos el formulario y los términos
     if (!_formKey.currentState!.validate() || !_termsAccepted) return;
@@ -187,17 +189,17 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
         password: _passwordController.text.trim(),
       );
 
-      // Verificamos que el usuario se haya creado correctamente
       final user = userCredential.user;
       if (user != null) {
 
-        // --- CAMBIO CLAVE: Actualizamos el perfil de Auth ---
-        // Esto guarda el nombre directamente en el objeto de usuario de Firebase.
-        // Es importante para que esté disponible en toda la app a través de `user.displayName`.
+        // --- CAMBIO CLAVE 1: ENVIAR CORREO DE VERIFICACIÓN ---
+        // Esta línea envía el correo de verificación estándar de Firebase.
+        await user.sendEmailVerification();
+
+        // Actualizamos el perfil de Auth
         await user.updateDisplayName(_nameController.text.trim());
 
-        // 2. Creamos o actualizamos el documento del usuario en Firestore
-        // Esto guarda la información adicional como el género, la fecha de nacimiento, etc.
+        // 2. Creamos el documento del usuario en Firestore (esto no cambia)
         await FirestoreService.createOrUpdateUserProfile(
           userId: user.uid,
           displayName: _nameController.text.trim(),
@@ -205,30 +207,26 @@ class _SignUpScreenState extends State<SignUpScreen> with TickerProviderStateMix
             'gender': _selectedGender,
             'birthDate': _selectedBirthDate,
             'termsAcceptedOn': Timestamp.now(),
-            'onboardingCompleted': false, // Se establece en 'false' para activar el tutorial
-            'createdAt': Timestamp.now(), // Es buena práctica guardar la fecha de creación del perfil
+            'onboardingCompleted': false,
+            'createdAt': Timestamp.now(),
           },
         );
-        
-        // 3. Redirigimos al usuario a la pantalla principal
-        // GoRouter se encargará de llevarlo a /home, y ModernHabitsScreen
-        // activará el tutorial porque 'onboardingCompleted' es false.
+
+        // --- CAMBIO CLAVE 2: REDIRIGIR A LA PANTALLA DE VERIFICACIÓN ---
+        // En lugar de ir a '/home', lo llevamos a una pantalla de espera.
         if (mounted) {
-          context.go('/home');
+          context.go('/verify-email');
         }
       }
     } on FirebaseAuthException catch (e) {
-      // Manejo de errores específicos de Firebase Auth
       if (mounted) {
         _showSnackBar(_getErrorMessage(e.code), AppColors.error);
       }
     } catch (e) {
-      // Manejo de errores generales (ej. problemas de red con Firestore)
       if (mounted) {
         _showSnackBar('Ocurrió un error inesperado. Inténtalo de nuevo.', AppColors.error);
       }
     } finally {
-      // Nos aseguramos de detener el indicador de carga, incluso si hay un error
       if (mounted) {
         setState(() => _isLoading = false);
       }

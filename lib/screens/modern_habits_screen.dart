@@ -91,15 +91,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
             tutorialCtrl.checkOnboardingStatus();
           }
 
-          if (habitsCtrl.showCoachWelcome) {
-            return CoachWelcomeView(
-              animationController: _animationController,
-              onCategorySelected: (category) {
-                habitsCtrl.getAiHabitSuggestions(category);
-              },
-            );
-          }
-
           return Scaffold(
             backgroundColor: const Color(0xFFF8FAFC),
             body: Stack(

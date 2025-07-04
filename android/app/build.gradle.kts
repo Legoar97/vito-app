@@ -48,8 +48,8 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             
             // IMPORTANTE: Ambas opciones deben estar sincronizadas
-            isMinifyEnabled = false
-            isShrinkResources = false  // AÑADIDO: Explícitamente deshabilitado
+            isMinifyEnabled = true
+            isShrinkResources = true  // AÑADIDO: Explícitamente deshabilitado
             
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

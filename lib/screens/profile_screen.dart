@@ -1173,6 +1173,126 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       ),
     );
   }
+
+  // Añade esta función DENTRO de la clase _ProfileScreenState
+
+  Future<void> _promptForPasswordAndDelete(BuildContext context) async {
+    final passwordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    String? errorText;
+
+    // Usa el contexto del Scaffold para mostrar SnackBars
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+
+    final bool? reauthenticated = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: StatefulBuilder( // StatefulBuilder para manejar el error en el dialog
+          builder: (context, setStateInDialog) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Confirmar Contraseña', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Por tu seguridad, ingresa tu contraseña para continuar.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF64748B)),
+                      ),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: passwordController,
+                        obscureText: true,
+                        autofocus: true,
+                        style: GoogleFonts.poppins(),
+                        decoration: InputDecoration(
+                          labelText: 'Contraseña',
+                          errorText: errorText, // Mostrar texto de error aquí
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        validator: (value) => value!.isEmpty ? 'Ingresa tu contraseña' : null,
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, false),
+                              child: const Text('Cancelar'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+                              onPressed: () async {
+                                if (formKey.currentState!.validate()) {
+                                  try {
+                                    final credential = EmailAuthProvider.credential(
+                                      email: user!.email!,
+                                      password: passwordController.text.trim(),
+                                    );
+                                    // Intenta re-autenticar
+                                    await user!.reauthenticateWithCredential(credential);
+                                    
+                                    // Si tiene éxito, cierra el diálogo y devuelve 'true'
+                                    if (context.mounted) Navigator.pop(dialogContext, true);
+                                    
+                                  } on FirebaseAuthException catch (e) {
+                                    // Si la contraseña es incorrecta, actualiza el estado del dialog
+                                    if (e.code == 'wrong-password') {
+                                      setStateInDialog(() {
+                                        errorText = 'Contraseña incorrecta.';
+                                      });
+                                    } else {
+                                      setStateInDialog(() {
+                                        errorText = 'Ocurrió un error.';
+                                      });
+                                    }
+                                  }
+                                }
+                              },
+                              child: const Text('Confirmar'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    // Si la re-autenticación fue exitosa (reauthenticated == true),
+    // intentamos borrar la cuenta de nuevo.
+    if (reauthenticated == true) {
+      await _deleteAccount(context);
+    } else {
+      // Opcional: mostrar un mensaje si el usuario canceló.
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('La eliminación de la cuenta fue cancelada.', style: GoogleFonts.poppins()),
+          backgroundColor: Colors.grey,
+        ),
+      );
+    }
+  }
   
   void _confirmDeleteAccount(BuildContext context) {
     HapticFeedback.heavyImpact();
@@ -1290,93 +1410,78 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
 
   Future<void> _deleteAccount(BuildContext context) async {
     if (user == null) return;
-    
+
+    // Guardamos las referencias antes de que el 'context' se vuelva inválido
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
+    final currentContext = context;
+
+    // Mostrar indicador de carga
+    showDialog(
+      context: currentContext,
+      barrierDismissible: false,
+      builder: (dialogContext) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
 
     try {
-      // Mostrar loading
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-      
       final userRef = FirebaseFirestore.instance.collection('users').doc(user!.uid);
-      
-      // Eliminar hábitos
+
+      // Eliminar subcolección de hábitos (opcional, pero buena práctica)
       final habitsSnapshot = await userRef.collection('habits').get();
       WriteBatch batch = FirebaseFirestore.instance.batch();
       for (var doc in habitsSnapshot.docs) {
         batch.delete(doc.reference);
       }
       await batch.commit();
-      
-      // Eliminar documento del usuario
+
+      // Eliminar documento principal del usuario en Firestore
       await userRef.delete();
-      
-      // Eliminar cuenta de autenticación
+
+      // Eliminar el usuario de Firebase Authentication
       await user!.delete();
 
-      // Cerrar loading
-      if (context.mounted) Navigator.pop(context);
-      
+      // Si todo va bien, cerramos el loading y navegamos
+      if (currentContext.mounted) Navigator.pop(currentContext); // Cierra el loading
+
       scaffoldMessenger.showSnackBar(
         SnackBar(
-          content: Text(
-            'Tu cuenta ha sido eliminada',
-            style: GoogleFonts.poppins(),
-          ),
+          content: Text('Tu cuenta ha sido eliminada con éxito', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
         ),
       );
-      
+
       router.go('/login');
 
     } on FirebaseAuthException catch (e) {
-      // Cerrar loading si está abierto
-      if (context.mounted) Navigator.pop(context);
-      
-      String message = 'Ocurrió un error al eliminar tu cuenta';
+      if (currentContext.mounted) Navigator.pop(currentContext); // Cierra el loading
+
       if (e.code == 'requires-recent-login') {
-        message = 'Por seguridad, debes iniciar sesión de nuevo';
+        // ¡AQUÍ ESTÁ LA MAGIA!
+        // Si se necesita re-autenticar, llamamos a nuestro nuevo diálogo.
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Por seguridad, necesitamos verificar tu identidad.', style: GoogleFonts.poppins()),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        // Esperamos un poquito para que el usuario lea el mensaje
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (currentContext.mounted) {
+          await _promptForPasswordAndDelete(currentContext);
+        }
+      } else {
+        // Manejar otros errores de Firebase Auth
+        scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('Error: ${e.message}', style: GoogleFonts.poppins()), backgroundColor: AppColors.error),
+        );
       }
-      
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-            style: GoogleFonts.poppins(),
-          ),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
     } catch (e) {
-      // Cerrar loading si está abierto
-      if (context.mounted) Navigator.pop(context);
-      
+      // Manejar errores generales
+      if (currentContext.mounted) Navigator.pop(currentContext); // Cierra el loading
       scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Error inesperado: $e',
-            style: GoogleFonts.poppins(),
-          ),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+        SnackBar(content: Text('Ocurrió un error inesperado.', style: GoogleFonts.poppins()), backgroundColor: AppColors.error),
       );
     }
   }
