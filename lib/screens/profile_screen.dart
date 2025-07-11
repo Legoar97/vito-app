@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:go_router/go_router.dart';
 import 'dart:ui';
-import 'dart:math' as math;
 
-import '../providers/theme_provider.dart';
-import '../theme/app_colors.dart';
+// Importa los providers y colores de tu proyecto real
+import '../providers/theme_provider.dart'; // Asegúrate de tener este archivo
+import '../providers/user_profile_provider.dart'; // Asegúrate de tener este archivo
+import '../theme/app_colors.dart'; // Asegúrate de tener este archivo
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -19,1478 +19,499 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateMixin {
-  final User? user = FirebaseAuth.instance.currentUser;
   late AnimationController _fadeController;
-  late AnimationController _scaleController;
-  bool _isLoading = false;
-  
-  // Estadísticas básicas del usuario
-  int _totalHabits = 0;
-  int _currentStreak = 0;
-  DateTime? _memberSince;
 
   @override
   void initState() {
     super.initState();
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    )..forward();
-    
-    _scaleController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
     )..forward();
-    
-    _loadUserStats();
-    
-    FirebaseAuth.instance.userChanges().listen((newUser) {
-      if (mounted) setState(() {});
-    });
+
+    // Carga los datos iniciales si no se han cargado ya
+    final userProfileProvider = Provider.of<UserProfileProvider>(context, listen: false);
+    final currentUser = FirebaseAuth.instance.currentUser;
+    // Solo carga si no hay datos y hay un usuario logueado
+    if (userProfileProvider.isLoading && currentUser != null) {
+      userProfileProvider.loadData(currentUser);
+    }
   }
-  
+
   @override
   void dispose() {
     _fadeController.dispose();
-    _scaleController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadUserStats() async {
-    if (user == null) return;
-    
-    setState(() => _isLoading = true);
-    
-    try {
-      // Cargar estadísticas básicas
-      final habitsSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .collection('habits')
-          .get();
-      
-      _totalHabits = habitsSnapshot.docs.length;
-      
-      // Calcular racha actual (simplificado)
-      int maxStreak = 0;
-      for (var doc in habitsSnapshot.docs) {
-        final habit = doc.data();
-        final streak = habit['streak'] ?? 0;
-        if (streak > maxStreak) maxStreak = streak;
-      }
-      _currentStreak = maxStreak;
-      
-      // Obtener fecha de registro
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .get();
-      
-      if (userDoc.exists && userDoc.data()?['createdAt'] != null) {
-        _memberSince = (userDoc.data()!['createdAt'] as Timestamp).toDate();
-      } else {
-        _memberSince = user!.metadata.creationTime ?? DateTime.now();
-      }
-      
-    } catch (e) {
-      print("Error loading user stats: $e");
-    }
-    
-    if (mounted) setState(() => _isLoading = false);
+  void _showEditNameDialog() {
+    final userProfile = context.read<UserProfileProvider>();
+    final controller = TextEditingController(text: userProfile.displayName);
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Cambiar Nombre', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: 'Tu nombre',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancelar', style: GoogleFonts.poppins(color: Colors.grey[700])),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.isNotEmpty) {
+                userProfile.updateDisplayName(controller.text); // Llama al Provider
+                Navigator.of(context).pop();
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            child: Text('Guardar', style: GoogleFonts.poppins(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLogoutDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Cerrar Sesión', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        content: Text('¿Estás seguro de que quieres cerrar tu sesión?', style: GoogleFonts.poppins()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancelar', style: GoogleFonts.poppins(color: Colors.grey[700])),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if(mounted) context.go('/login');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            child: Text('Cerrar Sesión', style: GoogleFonts.poppins(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteAccountDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Eliminar Cuenta', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.red)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '¿Estás seguro de que quieres eliminar tu cuenta?',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Esta acción es irreversible. Se eliminarán:',
+              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '• Todos tus hábitos\n• Tu historial de progreso\n• Todas tus estadísticas',
+              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[700]),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancelar', style: GoogleFonts.poppins(color: Colors.grey[700])),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                // Aquí deberías agregar la lógica para eliminar los datos del usuario de Firestore
+                final user = FirebaseAuth.instance.currentUser;
+                if (user != null) {
+                  // Eliminar el usuario de Firebase Auth
+                  await user.delete();
+                  if(mounted) context.go('/login');
+                }
+              } catch (e) {
+                // Manejar errores
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error al eliminar la cuenta: $e')),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            child: Text('Eliminar Cuenta', style: GoogleFonts.poppins(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final profileProvider = context.watch<UserProfileProvider>();
+
+    if (profileProvider.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
-        onRefresh: _loadUserStats,
+        onRefresh: () => profileProvider.loadData(FirebaseAuth.instance.currentUser),
         child: CustomScrollView(
           slivers: [
-            _buildModernAppBar(),
-            _buildProfileInfo(),
-            _buildQuickStats(),
-            _buildSettingsSection(),
-            const SliverToBoxAdapter(
-              child: SizedBox(height: 100),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildModernAppBar() {
-    return SliverAppBar(
-      expandedHeight: 200,
-      pinned: false,
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      flexibleSpace: FlexibleSpaceBar(
-        background: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppColors.primary,
-                AppColors.primary.withOpacity(0.8),
-              ],
-            ),
-          ),
-          child: Stack(
-            children: [
-              // Decoración de fondo
-              Positioned(
-                right: -50,
-                top: -50,
-                child: Container(
-                  width: 200,
-                  height: 200,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withOpacity(0.1),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: -30,
-                bottom: -30,
-                child: Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withOpacity(0.08),
-                  ),
-                ),
-              ),
-              // Título
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      FadeTransition(
-                        opacity: _fadeController,
-                        child: Text(
-                          'Mi Perfil',
-                          style: GoogleFonts.poppins(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Gestiona tu cuenta',
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          color: Colors.white.withOpacity(0.9),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildProfileInfo() {
-    return SliverToBoxAdapter(
-      child: Transform.translate(
-        offset: const Offset(0, -40),
-        child: FadeTransition(
-          opacity: _fadeController,
-          child: ScaleTransition(
-            scale: CurvedAnimation(
-              parent: _scaleController,
-              curve: Curves.easeOutBack,
-            ),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 30,
-                    offset: const Offset(0, 15),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Avatar con animación
-                  TweenAnimationBuilder<double>(
-                    duration: const Duration(milliseconds: 800),
-                    tween: Tween(begin: 0.0, end: 1.0),
-                    curve: Curves.easeOutBack,
-                    builder: (context, value, child) {
-                      return Transform.scale(
-                        scale: value,
-                        child: Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              colors: [
-                                AppColors.primary.withOpacity(0.8),
-                                AppColors.primary,
-                              ],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.primary.withOpacity(0.3),
-                                blurRadius: 20,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(3),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white,
-                                image: user?.photoURL != null
-                                    ? DecorationImage(
-                                        image: NetworkImage(user!.photoURL!),
-                                        fit: BoxFit.cover,
-                                      )
-                                    : null,
-                              ),
-                              child: user?.photoURL == null
-                                  ? Icon(
-                                      Icons.person_rounded,
-                                      size: 50,
-                                      color: AppColors.primary.withOpacity(0.7),
-                                    )
-                                  : null,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  // Nombre
-                  Text(
-                    user?.displayName ?? 'Usuario Vito',
-                    style: GoogleFonts.poppins(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF1E293B),
-                    ),
-                  ),
-                  
-                  // Email
-                  if (user?.email != null) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        user!.email!,
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          color: const Color(0xFF64748B),
-                        ),
-                      ),
-                    ),
-                  ],
-                  
-                  // Miembro desde
-                  if (_memberSince != null) ...[
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.calendar_today_rounded,
-                          size: 16,
-                          color: const Color(0xFF94A3B8),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Miembro desde ${_formatDate(_memberSince!)}',
-                          style: GoogleFonts.poppins(
-                            fontSize: 13,
-                            color: const Color(0xFF94A3B8),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildQuickStats() {
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.track_changes,
-                value: _totalHabits.toString(),
-                label: 'Hábitos',
-                color: AppColors.primary,
-                delay: 0.1,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.local_fire_department,
-                value: _currentStreak.toString(),
-                label: 'Racha máxima',
-                color: const Color(0xFFF97316),
-                delay: 0.2,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildStatCard({
-    required IconData icon,
-    required String value,
-    required String label,
-    required Color color,
-    required double delay,
-  }) {
-    return TweenAnimationBuilder<double>(
-      duration: Duration(milliseconds: 600 + (delay * 1000).toInt()),
-      tween: Tween(begin: 0.0, end: 1.0),
-      curve: Curves.easeOutBack,
-      builder: (context, animValue, child) {
-        return Transform.scale(
-          scale: animValue,
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  color.withOpacity(0.1),
-                  color.withOpacity(0.05),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: color.withOpacity(0.2),
-                width: 1.5,
-              ),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    icon,
-                    color: color,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TweenAnimationBuilder<int>(
-                  duration: const Duration(milliseconds: 1000),
-                  tween: IntTween(begin: 0, end: int.parse(value)),
-                  builder: (context, val, child) {
-                    return Text(
-                      val.toString(),
-                      style: GoogleFonts.poppins(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1E293B),
-                      ),
-                    );
-                  },
-                ),
-                Text(
-                  label,
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: const Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-  
-  Widget _buildSettingsSection() {
-    return SliverToBoxAdapter(
-      child: FadeTransition(
-        opacity: _fadeController,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 30,
-                offset: const Offset(0, 15),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              _buildModernSettingTile(
-                icon: Icons.edit_rounded,
-                title: 'Editar Perfil',
-                subtitle: 'Cambia tu información',
-                color: AppColors.primary,
-                onTap: () => _showEditProfileSheet(context),
-              ),
-              _buildDivider(),
-              _buildModernSettingTile(
-                icon: Icons.palette_rounded,
-                title: 'Apariencia',
-                subtitle: 'Tema de la aplicación',
-                color: const Color(0xFF8B5CF6),
-                onTap: () => _showAppearanceSettings(context),
-              ),
-              _buildDivider(),
-              _buildModernSettingTile(
-                icon: Icons.notifications_rounded,
-                title: 'Notificaciones',
-                subtitle: 'Gestiona tus alertas',
-                color: const Color(0xFF3B82F6),
-                onTap: () => _showNotificationsSettings(context),
-              ),
-              _buildDivider(),
-              _buildModernSettingTile(
-                icon: Icons.help_rounded,
-                title: 'Ayuda y Soporte',
-                subtitle: 'Centro de ayuda',
-                color: const Color(0xFF10B981),
-                onTap: () => _showHelpCenter(context),
-              ),
-              _buildDivider(),
-              _buildModernSettingTile(
-                icon: Icons.logout_rounded,
-                title: 'Cerrar Sesión',
-                subtitle: 'Hasta pronto',
-                color: const Color(0xFF6B7280),
-                onTap: () => _signOut(context),
-              ),
-              _buildDivider(),
-              _buildModernSettingTile(
-                icon: Icons.delete_forever_rounded,
-                title: 'Eliminar Cuenta',
-                subtitle: 'Acción permanente',
-                color: AppColors.error,
-                onTap: () => _confirmDeleteAccount(context),
-                isDestructive: true,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildModernSettingTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    required VoidCallback onTap,
-    bool isDestructive = false,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(28),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      color.withOpacity(0.1),
-                      color.withOpacity(0.05),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: GoogleFonts.poppins(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: isDestructive 
-                            ? color 
-                            : const Color(0xFF1E293B),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: GoogleFonts.poppins(
-                        fontSize: 13,
-                        color: const Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: const Color(0xFF94A3B8),
-                size: 24,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildDivider() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Divider(
-        height: 1,
-        color: const Color(0xFFE2E8F0),
-      ),
-    );
-  }
-  
-  void _showEditProfileSheet(BuildContext context) {
-    final nameController = TextEditingController(text: user?.displayName);
-    final formKey = GlobalKey<FormState>();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-            left: 24,
-            right: 24,
-            top: 24,
-          ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Editar Perfil',
-                  style: GoogleFonts.poppins(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1E293B),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                TextFormField(
-                  controller: nameController,
-                  style: GoogleFonts.poppins(),
-                  decoration: InputDecoration(
-                    labelText: 'Nombre',
-                    labelStyle: GoogleFonts.poppins(
-                      color: const Color(0xFF64748B),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(
-                        color: Color(0xFFE2E8F0),
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide(
-                        color: AppColors.primary,
-                        width: 2,
-                      ),
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'El nombre no puede estar vacío';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (formKey.currentState!.validate() && user != null) {
-                        HapticFeedback.mediumImpact();
-                        await user!.updateDisplayName(
-                          nameController.text.trim(),
-                        );
-                        if (mounted) {
-                          Navigator.pop(context);
-                          setState(() {});
-                        }
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: Text(
-                      'Guardar Cambios',
-                      style: GoogleFonts.poppins(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-  
-  void _showAppearanceSettings(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (modalContext) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Apariencia',
-                style: GoogleFonts.poppins(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF1E293B),
-                ),
-              ),
-              const SizedBox(height: 20),
-              _buildThemeOption(
-                context: modalContext,
-                title: 'Tema Claro',
-                icon: Icons.light_mode,
-                option: ThemeOption.light,
-                currentOption: themeProvider.currentThemeOption,
-                onTap: () {
-                  themeProvider.setTheme(ThemeOption.light);
-                  Navigator.pop(modalContext);
-                },
-              ),
-              const SizedBox(height: 12),
-              _buildThemeOption(
-                context: modalContext,
-                title: 'Tema Oscuro',
-                icon: Icons.dark_mode,
-                option: ThemeOption.dark,
-                currentOption: themeProvider.currentThemeOption,
-                onTap: () {
-                  themeProvider.setTheme(ThemeOption.dark);
-                  Navigator.pop(modalContext);
-                },
-              ),
-              const SizedBox(height: 12),
-              _buildThemeOption(
-                context: modalContext,
-                title: 'Tema del Sistema',
-                icon: Icons.settings_brightness,
-                option: ThemeOption.system,
-                currentOption: themeProvider.currentThemeOption,
-                onTap: () {
-                  themeProvider.setTheme(ThemeOption.system);
-                  Navigator.pop(modalContext);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildThemeOption({
-    required BuildContext context,
-    required String title,
-    required IconData icon,
-    required ThemeOption option,
-    required ThemeOption currentOption,
-    required VoidCallback onTap,
-  }) {
-    final isSelected = option == currentOption;
-    
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isSelected 
-                ? AppColors.primary.withOpacity(0.1)
-                : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isSelected 
-                  ? AppColors.primary.withOpacity(0.3)
-                  : const Color(0xFFE2E8F0),
-              width: 1.5,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppColors.primary.withOpacity(0.2)
-                      : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  icon,
-                  color: isSelected 
-                      ? AppColors.primary
-                      : const Color(0xFF64748B),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Text(
-                title,
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: isSelected 
-                      ? AppColors.primary
-                      : const Color(0xFF1E293B),
-                ),
-              ),
-              const Spacer(),
-              if (isSelected)
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.check,
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  void _showNotificationsSettings(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE2E8F0),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Notificaciones',
-              style: GoogleFonts.poppins(
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF1E293B),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Las notificaciones se configuran individualmente para cada hábito',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: const Color(0xFF64748B),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: const Color(0xFFE2E8F0),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.info_outline_rounded,
-                      color: AppColors.primary,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Ve a la pantalla de hábitos para configurar recordatorios específicos',
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        color: const Color(0xFF475569),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  void _showHelpCenter(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2E8F0),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Icon(
-              Icons.support_agent_rounded,
-              size: 64,
-              color: AppColors.primary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '¿Necesitas ayuda?',
-              style: GoogleFonts.poppins(
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF1E293B),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Estamos aquí para apoyarte',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: const Color(0xFF64748B),
-              ),
-            ),
-            const SizedBox(height: 24),
-            ListTile(
-              leading: Icon(Icons.email_rounded, color: AppColors.primary),
-              title: Text(
-                'soporte@vitoapp.com',
-                style: GoogleFonts.poppins(fontSize: 16),
-              ),
-              subtitle: Text(
-                'Envíanos un email',
-                style: GoogleFonts.poppins(fontSize: 13),
-              ),
-              onTap: () {
-                HapticFeedback.lightImpact();
-                // Abrir cliente de email
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.article_rounded, color: AppColors.primary),
-              title: Text(
-                'Centro de ayuda',
-                style: GoogleFonts.poppins(fontSize: 16),
-              ),
-              subtitle: Text(
-                'Preguntas frecuentes',
-                style: GoogleFonts.poppins(fontSize: 13),
-              ),
-              onTap: () {
-                HapticFeedback.lightImpact();
-                // Abrir FAQ
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  void _signOut(BuildContext context) {
-    HapticFeedback.mediumImpact();
-    
-    showDialog(
-      context: context,
-      builder: (dialogContext) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 30,
-                  offset: const Offset(0, 15),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.logout_rounded,
-                    color: Color(0xFF64748B),
-                    size: 32,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  '¿Cerrar Sesión?',
-                  style: GoogleFonts.poppins(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1E293B),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '¿Estás seguro de que deseas salir?',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: const Color(0xFF64748B),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(dialogContext),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        child: Text(
-                          'Cancelar',
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: const Color(0xFF64748B),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          HapticFeedback.heavyImpact();
-                          await FirebaseAuth.instance.signOut();
-                          if (context.mounted) {
-                            GoRouter.of(context).go('/login');
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Cerrar Sesión',
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Añade esta función DENTRO de la clase _ProfileScreenState
-
-  Future<void> _promptForPasswordAndDelete(BuildContext context) async {
-    final passwordController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    String? errorText;
-
-    // Usa el contexto del Scaffold para mostrar SnackBars
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final router = GoRouter.of(context);
-
-    final bool? reauthenticated = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: StatefulBuilder( // StatefulBuilder para manejar el error en el dialog
-          builder: (context, setStateInDialog) {
-            return Dialog(
+            // Nuevo SliverAppBar con el mismo estilo que stats_screen
+            SliverAppBar(
+              expandedHeight: 180,
+              floating: false,
+              pinned: true,
               backgroundColor: Colors.transparent,
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                ),
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Confirmar Contraseña', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Por tu seguridad, ingresa tu contraseña para continuar.',
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.poppins(fontSize: 14, color: const Color(0xFF64748B)),
-                      ),
-                      const SizedBox(height: 20),
-                      TextFormField(
-                        controller: passwordController,
-                        obscureText: true,
-                        autofocus: true,
-                        style: GoogleFonts.poppins(),
-                        decoration: InputDecoration(
-                          labelText: 'Contraseña',
-                          errorText: errorText, // Mostrar texto de error aquí
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                        validator: (value) => value!.isEmpty ? 'Ingresa tu contraseña' : null,
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
+              elevation: 0,
+              flexibleSpace: FlexibleSpaceBar(
+                background: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.primary, AppColors.secondary],
+                    ),
+                  ),
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Expanded(
-                            child: TextButton(
-                              onPressed: () => Navigator.pop(dialogContext, false),
-                              child: const Text('Cancelar'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-                              onPressed: () async {
-                                if (formKey.currentState!.validate()) {
-                                  try {
-                                    final credential = EmailAuthProvider.credential(
-                                      email: user!.email!,
-                                      password: passwordController.text.trim(),
-                                    );
-                                    // Intenta re-autenticar
-                                    await user!.reauthenticateWithCredential(credential);
-                                    
-                                    // Si tiene éxito, cierra el diálogo y devuelve 'true'
-                                    if (context.mounted) Navigator.pop(dialogContext, true);
-                                    
-                                  } on FirebaseAuthException catch (e) {
-                                    // Si la contraseña es incorrecta, actualiza el estado del dialog
-                                    if (e.code == 'wrong-password') {
-                                      setStateInDialog(() {
-                                        errorText = 'Contraseña incorrecta.';
-                                      });
-                                    } else {
-                                      setStateInDialog(() {
-                                        errorText = 'Ocurrió un error.';
-                                      });
-                                    }
-                                  }
-                                }
-                              },
-                              child: const Text('Confirmar'),
+                          FadeTransition(
+                            opacity: _fadeController,
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
+                                  child: const Icon(Icons.person_rounded, color: Colors.white, size: 28),
+                                ),
+                                const SizedBox(width: 16),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Mi Perfil', style: GoogleFonts.poppins(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
+                                    Text('Gestiona tu cuenta', style: GoogleFonts.poppins(fontSize: 16, color: Colors.white.withOpacity(0.9))),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            );
-          },
+            ),
+            SliverToBoxAdapter(
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  _buildUserCard(context, profileProvider),
+                  _buildAccountSection(context, profileProvider),
+                  // Ya no mostramos _buildPreferencesSection
+                  _buildSupportSection(context),
+                  _buildLegalSection(),
+                  _buildLogoutButton(),
+                  _buildDeleteAccountButton(),
+                  _buildAppVersion(context),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
-
-    // Si la re-autenticación fue exitosa (reauthenticated == true),
-    // intentamos borrar la cuenta de nuevo.
-    if (reauthenticated == true) {
-      await _deleteAccount(context);
-    } else {
-      // Opcional: mostrar un mensaje si el usuario canceló.
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text('La eliminación de la cuenta fue cancelada.', style: GoogleFonts.poppins()),
-          backgroundColor: Colors.grey,
-        ),
-      );
-    }
   }
-  
-  void _confirmDeleteAccount(BuildContext context) {
-    HapticFeedback.heavyImpact();
+
+  Widget _buildUserCard(BuildContext context, UserProfileProvider provider) {
+    final daysUsing = provider.createdAt != null ? DateTime.now().difference(provider.createdAt!).inDays + 1 : 1;
     
-    showDialog(
-      context: context,
-      builder: (dialogContext) => BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(28),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 30,
-                  offset: const Offset(0, 15),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: AppColors.error.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.warning_rounded,
-                    color: AppColors.error,
-                    size: 32,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  '¿Eliminar cuenta?',
-                  style: GoogleFonts.poppins(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1E293B),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Esta acción es permanente. Se eliminarán todos tus hábitos y progreso.',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    color: const Color(0xFF64748B),
-                    height: 1.5,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(dialogContext),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        child: Text(
-                          'Cancelar',
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: const Color(0xFF64748B),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(dialogContext);
-                          _deleteAccount(context);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.error,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Eliminar',
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+    return Container(
+      margin: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primary, Color(0xFF8B5CF6)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))],
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
+            child: Center(
+              child: Text(
+                provider.displayName.isNotEmpty ? provider.displayName.substring(0, 1).toUpperCase() : 'U',
+                style: GoogleFonts.poppins(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold),
+              ),
             ),
           ),
+          const SizedBox(height: 16),
+          Text(provider.displayName, style: GoogleFonts.poppins(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w600)),
+          Text(provider.email, style: GoogleFonts.poppins(color: Colors.white.withOpacity(0.9), fontSize: 14)),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildUserStat('$daysUsing', 'Días activo'),
+              Container(height: 30, width: 1, color: Colors.white30),
+              _buildUserStat(provider.totalHabits.toString(), 'Hábitos'),
+              Container(height: 30, width: 1, color: Colors.white30),
+              _buildUserStat(provider.isPremium ? 'Pro' : 'Free', 'Plan'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUserStat(String value, String label) {
+    return Column(
+      children: [
+        Text(value, style: GoogleFonts.poppins(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(label, style: GoogleFonts.poppins(color: Colors.white.withOpacity(0.8), fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildAccountSection(BuildContext context, UserProfileProvider provider) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Theme.of(context).shadowColor.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.account_circle_outlined, color: AppColors.primary, size: 24),
+            const SizedBox(width: 8),
+            Text('Mi Cuenta', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Theme.of(context).textTheme.bodyLarge?.color)),
+          ]),
+          const SizedBox(height: 20),
+          _buildAccountItem('Cambiar nombre', provider.displayName, Icons.person_outline_rounded, () => _showEditNameDialog(), context),
+          const SizedBox(height: 16),
+          _buildAccountItem('Email', provider.email, Icons.email_outlined, null, context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccountItem(String label, String value, IconData icon, VoidCallback? onTap, BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+              child: Icon(icon, color: AppColors.primary, size: 20),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color)),
+                  Text(value, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: Theme.of(context).textTheme.bodyLarge?.color)),
+                ],
+              ),
+            ),
+            if (onTap != null) Icon(Icons.edit_outlined, color: Theme.of(context).iconTheme.color?.withOpacity(0.5), size: 20),
+          ],
         ),
       ),
     );
   }
 
-  Future<void> _deleteAccount(BuildContext context) async {
-    if (user == null) return;
-
-    // Guardamos las referencias antes de que el 'context' se vuelva inválido
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final router = GoRouter.of(context);
-    final currentContext = context;
-
-    // Mostrar indicador de carga
-    showDialog(
-      context: currentContext,
-      barrierDismissible: false,
-      builder: (dialogContext) => const Center(
-        child: CircularProgressIndicator(),
+  Widget _buildSupportSection(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Theme.of(context).shadowColor.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.help_outline_rounded, color: AppColors.primary, size: 24),
+            const SizedBox(width: 8),
+            Text('Ayuda y Soporte', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Theme.of(context).textTheme.bodyLarge?.color)),
+          ]),
+          const SizedBox(height: 20),
+          _buildSupportItem('Centro de ayuda', 'Preguntas frecuentes', Icons.quiz_outlined, () {}, context),
+          const SizedBox(height: 16),
+          _buildSupportItem('Contactar soporte', 'Te respondemos en 24h', Icons.mail_outline_rounded, () {}, context),
+        ],
       ),
     );
-
-    try {
-      final userRef = FirebaseFirestore.instance.collection('users').doc(user!.uid);
-
-      // Eliminar subcolección de hábitos (opcional, pero buena práctica)
-      final habitsSnapshot = await userRef.collection('habits').get();
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (var doc in habitsSnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-
-      // Eliminar documento principal del usuario en Firestore
-      await userRef.delete();
-
-      // Eliminar el usuario de Firebase Authentication
-      await user!.delete();
-
-      // Si todo va bien, cerramos el loading y navegamos
-      if (currentContext.mounted) Navigator.pop(currentContext); // Cierra el loading
-
-      scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text('Tu cuenta ha sido eliminada con éxito', style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.success,
-        ),
-      );
-
-      router.go('/login');
-
-    } on FirebaseAuthException catch (e) {
-      if (currentContext.mounted) Navigator.pop(currentContext); // Cierra el loading
-
-      if (e.code == 'requires-recent-login') {
-        // ¡AQUÍ ESTÁ LA MAGIA!
-        // Si se necesita re-autenticar, llamamos a nuestro nuevo diálogo.
-        scaffoldMessenger.showSnackBar(
-          SnackBar(
-            content: Text('Por seguridad, necesitamos verificar tu identidad.', style: GoogleFonts.poppins()),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        // Esperamos un poquito para que el usuario lea el mensaje
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (currentContext.mounted) {
-          await _promptForPasswordAndDelete(currentContext);
-        }
-      } else {
-        // Manejar otros errores de Firebase Auth
-        scaffoldMessenger.showSnackBar(
-          SnackBar(content: Text('Error: ${e.message}', style: GoogleFonts.poppins()), backgroundColor: AppColors.error),
-        );
-      }
-    } catch (e) {
-      // Manejar errores generales
-      if (currentContext.mounted) Navigator.pop(currentContext); // Cierra el loading
-      scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Ocurrió un error inesperado.', style: GoogleFonts.poppins()), backgroundColor: AppColors.error),
-      );
-    }
   }
-  
-  String _formatDate(DateTime date) {
-    final months = [
-      'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-      'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
-    ];
-    return '${months[date.month - 1]} ${date.year}';
+
+  Widget _buildSupportItem(String title, String subtitle, IconData icon, VoidCallback onTap, BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+              child: Icon(icon, color: Colors.blue, size: 20),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: Theme.of(context).textTheme.bodyLarge?.color)),
+                  Text(subtitle, style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color)),
+                ],
+              ),
+            ),
+            Icon(Icons.open_in_new_rounded, color: Theme.of(context).iconTheme.color?.withOpacity(0.5), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLegalSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Theme.of(context).shadowColor.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          TextButton(onPressed: () {}, child: Text('Términos', style: GoogleFonts.poppins(fontSize: 14, color: Theme.of(context).textTheme.bodyMedium?.color))),
+          Container(height: 20, width: 1, color: Theme.of(context).dividerColor),
+          TextButton(onPressed: () {}, child: Text('Privacidad', style: GoogleFonts.poppins(fontSize: 14, color: Theme.of(context).textTheme.bodyMedium?.color))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogoutButton() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: OutlinedButton(
+        onPressed: _showLogoutDialog,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.red,
+          side: const BorderSide(color: Colors.red),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.logout_rounded),
+            const SizedBox(width: 8),
+            Text('Cerrar Sesión', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeleteAccountButton() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: TextButton(
+        onPressed: _showDeleteAccountDialog,
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.red.withOpacity(0.7),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.delete_forever_rounded, size: 20),
+            const SizedBox(width: 8),
+            Text('Eliminar mi cuenta', style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w400)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppVersion(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.spa_rounded, color: AppColors.primary, size: 24),
+              const SizedBox(width: 8),
+              Text('Vito', style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text('Versión 1.2.0', style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color)),
+          const SizedBox(height: 4),
+          Text('Hecho con 💜 para tu bienestar', style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color)),
+        ],
+      ),
+    );
   }
 }

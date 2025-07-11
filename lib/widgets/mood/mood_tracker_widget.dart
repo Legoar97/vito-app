@@ -77,7 +77,7 @@ class _MoodTrackerWidgetState extends State<MoodTrackerWidget> {
       .collection('moods')
       .add({'mood': mood, 'timestamp': Timestamp.now()});
 
-    await NotificationService.cancelDailyMoodReminder();
+    // await NotificationService.cancelDailyMoodReminder();
 
     _loadTodaysMood();
     _showMessage('¡Ánimo registrado!');

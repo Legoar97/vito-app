@@ -267,14 +267,14 @@ class _StatsScreenState extends State<StatsScreen> with TickerProviderStateMixin
                           getTitlesWidget: (value, meta) {
                             const days = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
                             final dayIndex = DateTime.now().subtract(Duration(days: 6 - value.toInt())).weekday - 1;
-                            return SideTitleWidget(axisSide: meta.axisSide, child: Text(days[dayIndex], style: GoogleFonts.poppins(color: const Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500)));
+                            return Text(days[dayIndex], style: GoogleFonts.poppins(color: const Color(0xFF64748B), fontSize: 13, fontWeight: FontWeight.w500));
                           },
                         ),
                       ),
                       leftTitles: AxisTitles(
                         sideTitles: SideTitles(
                           showTitles: true, interval: 25, reservedSize: 45,
-                          getTitlesWidget: (value, meta) => SideTitleWidget(axisSide: meta.axisSide, child: Text('${value.toInt()}%', style: GoogleFonts.poppins(color: const Color(0xFF64748B), fontSize: 12))),
+                          getTitlesWidget: (value, meta) => Text('${value.toInt()}%', style: GoogleFonts.poppins(color: const Color(0xFF64748B), fontSize: 12)),
                         ),
                       ),
                     ),

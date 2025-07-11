@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'modern_habits_screen.dart';
 import 'stats_screen.dart';
-import 'mood_tracker_screen.dart'; // Agregar import
+import 'mood_tracker_screen.dart';
 import 'ai_coach_screen.dart';
 import 'profile_screen.dart';
 
@@ -26,18 +26,25 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     _selectedIndex = widget.initialIndex;
   }
   
-  final List<Widget> _screens = [
-    const ModernHabitsScreen(),
-    const MoodTrackerScreen(),
-    const AICoachScreen(),
-    const StatsScreen(),
-    const ProfileScreen(),
-  ];
+  // --- CAMBIO CLAVE 1: Se elimina la lista de pantallas de aquí ---
+  // final List<Widget> _screens = [ ... ];
   
   @override
   Widget build(BuildContext context) {
+
+    // --- CAMBIO CLAVE 2: La lista de pantallas ahora se define DENTRO del build ---
+    // Esto asegura que cada vez que el widget se reconstruye (por ejemplo, al cambiar de tema),
+    // la pantalla activa se vuelve a crear con el contexto y tema actualizados.
+    final List<Widget> screens = [
+      const ModernHabitsScreen(),
+      const MoodTrackerScreen(),
+      const AICoachScreen(),
+      const StatsScreen(),
+      const ProfileScreen(),
+    ];
+
     return Scaffold(
-      body: _screens[_selectedIndex],
+      body: screens[_selectedIndex],
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
@@ -56,7 +63,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             type: BottomNavigationBarType.fixed,
             backgroundColor: Theme.of(context).cardColor,
             selectedItemColor: Theme.of(context).primaryColor,
-            unselectedItemColor: Colors.grey[400],
+
+            // --- CAMBIO CLAVE 3: Color que se adapta al tema ---
+            // En lugar de un color fijo, usamos uno del tema actual.
+            unselectedItemColor: Theme.of(context).textTheme.bodySmall?.color?.withOpacity(0.5),
+            
             showSelectedLabels: false,
             showUnselectedLabels: false,
             items: const [

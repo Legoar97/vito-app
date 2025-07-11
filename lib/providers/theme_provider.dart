@@ -1,34 +1,35 @@
-import 'package:flutter/material.dart';
+// lib/providers/theme_provider.dart
 
-// Este enum define los temas disponibles.
-enum ThemeOption { light, dark, system }
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ThemeProvider with ChangeNotifier {
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.system; // Por defecto, usamos el tema del sistema
 
   ThemeMode get themeMode => _themeMode;
 
-  // Método para cambiar el tema y notificar a los oyentes (la UI).
-  void setTheme(ThemeOption themeOption) {
-    switch (themeOption) {
-      case ThemeOption.light:
-        _themeMode = ThemeMode.light;
-        break;
-      case ThemeOption.dark:
-        _themeMode = ThemeMode.dark;
-        break;
-      case ThemeOption.system:
-        _themeMode = ThemeMode.system;
-        break;
-    }
-    // Notifica a todos los widgets que escuchan para que se reconstruyan con el nuevo tema.
+  ThemeProvider() {
+    _loadTheme(); // Cargamos la preferencia guardada cuando la app inicia
+  }
+
+  // Carga el tema guardado desde el almacenamiento local
+  void _loadTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Leemos el índice del ThemeMode. Si no hay nada, usamos el del sistema (valor 2).
+    // 0 = light, 1 = dark, 2 = system
+    final themeIndex = prefs.getInt('themeMode') ?? ThemeMode.system.index;
+    _themeMode = ThemeMode.values[themeIndex];
     notifyListeners();
   }
 
-  // Convierte el ThemeMode actual a nuestro enum para la UI.
-  ThemeOption get currentThemeOption {
-    if (_themeMode == ThemeMode.light) return ThemeOption.light;
-    if (_themeMode == ThemeMode.dark) return ThemeOption.dark;
-    return ThemeOption.system;
+  // Cambia el tema y guarda la nueva preferencia
+  Future<void> setTheme(ThemeMode themeMode) async {
+    if (_themeMode == themeMode) return; // No hacer nada si ya es el mismo tema
+
+    _themeMode = themeMode;
+    notifyListeners(); // Notifica a la UI para que se reconstruya con el nuevo tema
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('themeMode', themeMode.index); // Guarda el índice del enum
   }
 }

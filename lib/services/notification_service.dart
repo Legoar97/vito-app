@@ -3,10 +3,17 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:timezone/timezone.dart' as tz;
 import 'package:intl/intl.dart';
+
+// --- INICIO DE CAMBIOS CLAVE ---
+// Se añaden los imports necesarios para la configuración de zonas horarias.
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+// Se usa el nuevo paquete 'flutter_timezone' que es compatible con las versiones modernas de Android.
+import 'package:flutter_timezone/flutter_timezone.dart';
+// El import de 'permission_handler' se elimina porque ya no se usa directamente aquí.
+// --- FIN DE CAMBIOS CLAVE ---
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -33,6 +40,16 @@ class NotificationService {
 
   // Se llama una vez desde main.dart
   static Future<void> initialize() async {
+    // --- LÓGICA DE ZONA HORARIA ACTUALIZADA Y CENTRALIZADA ---
+    // 1. Inicializa la base de datos de zonas horarias del paquete 'timezone'.
+    tz.initializeTimeZones();
+    // 2. Obtiene el nombre de la zona horaria local del dispositivo usando el nuevo paquete.
+    final String locationName = await FlutterTimezone.getLocalTimezone();
+    // 3. Establece esa zona horaria como la ubicación por defecto para todas las operaciones.
+    //    Esto asegura que `tz.local` sea siempre la zona horaria correcta del usuario.
+    tz.setLocalLocation(tz.getLocation(locationName));
+
+    // El resto de la inicialización de notificaciones locales...
     const androidSettings = AndroidInitializationSettings('@drawable/ic_notification_icon');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
@@ -51,6 +68,7 @@ class NotificationService {
   }
 
   // --- SECCIÓN DE FIREBASE CLOUD MESSAGING (Notificaciones Push) ---
+  // (Esta sección estaba correcta y no necesita cambios)
 
   // Llama a esta función después de un login/signup exitoso
   static Future<void> initializeAndSaveToken(String userId) async {
@@ -91,6 +109,8 @@ class NotificationService {
   }
 
   // --- SECCIÓN DE NOTIFICACIONES LOCALES (Recordatorios) ---
+  // (Esta sección estaba correcta y no necesita cambios, ahora será más precisa gracias
+  // a la inicialización correcta de la zona horaria)
 
   static void _onNotificationTap(NotificationResponse response) async {
     debugPrint('Notification tapped with payload: ${response.payload}');
@@ -158,7 +178,7 @@ class NotificationService {
       _moodReminderId,
       '¿Cómo te fue hoy? 💭',
       'Tómate un momento para registrar tu estado de ánimo en Vito.',
-      _nextInstanceOfTime(20, 0), // 8 PM
+      _nextInstanceOfTime(20, 0), // 8 PM (ahora en la hora local correcta)
       const NotificationDetails(
         android: AndroidNotificationDetails(
           'mood_reminders',
@@ -203,6 +223,7 @@ class NotificationService {
   }
 
   // --- FUNCIONES AUXILIARES DE TIEMPO (Ahora más confiables) ---
+  // (No necesitan cambios, pero ahora operan con la zona horaria correcta gracias a la inicialización)
 
   static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final tz.TZDateTime now = tz.TZDateTime.now(tz.local);

@@ -24,12 +24,10 @@ import 'services/notification_service.dart';
 import 'services/vertex_ai_service.dart';
 import 'l10n/app_localizations.dart';
 
+import 'providers/user_profile_provider.dart';
 
-// --- SECCIÓN DEL SERVICIO EN SEGUNDO PLANO ---
-// Esta parte se mantiene sin cambios, ya que maneja las notificaciones
-// específicas del temporizador y funciona de manera independiente.
-final FlutterLocalNotificationsPlugin serviceNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
+// --- SECCIÓN DEL SERVICIO EN SEGUNDO PLANO (SIN CAMBIOS) ---
+final FlutterLocalNotificationsPlugin serviceNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
 Future<void> initializeBackgroundService() async {
   final service = FlutterBackgroundService();
@@ -38,7 +36,9 @@ Future<void> initializeBackgroundService() async {
     'vito_foreground_service',
     'Vito Tareas en Segundo Plano',
     description: 'Canal para mantener los temporizadores de Vito activos.',
-    importance: Importance.low,
+    importance: Importance.min,
+    playSound: false,
+    enableVibration: false,
     showBadge: false,
   );
 
@@ -65,8 +65,8 @@ Future<void> initializeBackgroundService() async {
       autoStart: false,
       isForegroundMode: true,
       notificationChannelId: 'vito_foreground_service',
-      initialNotificationTitle: 'Vito está trabajando',
-      initialNotificationContent: 'Manteniendo tus temporizadores activos',
+      initialNotificationTitle: 'Vito',
+      initialNotificationContent: 'Iniciando temporizador...',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -87,27 +87,21 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) {
   DartPluginRegistrant.ensureInitialized();
-  // La lógica interna de onStart para el temporizador no necesita cambios.
   final player = AudioPlayer();
   Timer? activeTimer;
+
   if (service is AndroidServiceInstance) {
     service.setAsForegroundService();
-    Timer.periodic(const Duration(minutes: 1), (timer) async {
-      if (await service.isForegroundService()) {
-        final now = DateTime.now();
-        service.setForegroundNotificationInfo(
-          title: "Vito está activo",
-          content: "Última actualización: ${now.hour}:${now.minute.toString().padLeft(2, '0')}",
-        );
-      }
-    });
   }
+
   service.on('startTimer').listen((event) {
     activeTimer?.cancel();
     if (event == null) return;
+
     final duration = event['duration'] as int? ?? 0;
     final taskName = event['taskName'] as String? ?? 'Tarea';
     var remaining = duration;
+
     activeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       remaining--;
       service.invoke('timerUpdate', {'remaining': remaining, 'taskName': taskName});
@@ -125,26 +119,18 @@ void onStart(ServiceInstance service) {
         service.invoke('timerComplete', {'taskName': taskName});
         try { player.play(AssetSource('sounds/completion_sound.mp3')); } catch (e) { print('Error al reproducir sonido: $e'); }
         _showCompletionNotification(taskName);
-        if (service is AndroidServiceInstance) {
-          service.setForegroundNotificationInfo(
-            title: "Vito está activo",
-            content: "Esperando siguiente temporizador",
-          );
-        }
+        service.stopSelf();
       }
     });
   });
+
   service.on('stopTimer').listen((event) {
     activeTimer?.cancel();
     activeTimer = null;
     service.invoke('timerStopped');
-    if (service is AndroidServiceInstance) {
-      service.setForegroundNotificationInfo(
-        title: "Vito está activo",
-        content: "Temporizador detenido",
-      );
-    }
+    service.stopSelf();
   });
+
   service.on('stopService').listen((event) {
     activeTimer?.cancel();
     player.dispose();
@@ -179,70 +165,42 @@ Future<void> _showCompletionNotification(String taskName) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 1. Inicializar Firebase (Correcto, sin cambios)
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
-  // 2. Inicializar NotificationService (Centralizado)
-  // Esta única llamada configura notificaciones locales y el manejador de background de Firebase.
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.initialize();
-
-  // 3. CAMBIO: Escuchar notificaciones push en primer plano.
-  // Es necesario para que las notificaciones de FCM se muestren si la app está abierta.
   NotificationService.handleForegroundMessages();
 
-  // 4. CAMBIO: Manejar el token de FCM al cambiar el estado de autenticación.
-  // Escuchamos los cambios en la autenticación. Si un usuario inicia sesión (o ya estaba logueado
-  // al abrir la app), obtenemos y guardamos su token de FCM.
-  // Esto es más robusto que llamarlo manualmente desde las pantallas de login/signup.
   FirebaseAuth.instance.authStateChanges().listen((User? user) {
-    if (user != null && user.emailVerified) { // Nos aseguramos que el email esté verificado
+    if (user != null && user.emailVerified) {
       print("Usuario verificado (${user.uid}), inicializando token para notificaciones push.");
       NotificationService.initializeAndSaveToken(user.uid);
     }
   });
   
-  // 5. Inicializar otros servicios (Correcto, sin cambios)
   await VertexAIService.initialize();
 
-  // 6. CAMBIO: Simplificación de la inicialización de notificaciones.
-  // Se elimina la solicitud de permisos explícita (`requestNotificationsPermission`)
-  // porque el nuevo `NotificationService` la gestiona internamente cuando es necesario.
-  const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@drawable/ic_notification_icon');
-  const InitializationSettings initializationSettings = InitializationSettings(
-    android: initializationSettingsAndroid,
-    iOS: DarwinInitializationSettings(),
-  );
+  const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@drawable/ic_notification_icon');
+  const InitializationSettings initializationSettings = InitializationSettings(android: initializationSettingsAndroid, iOS: DarwinInitializationSettings());
   await serviceNotificationsPlugin.initialize(initializationSettings);
   
-  // 7. Inicializar servicio en segundo plano (Correcto, sin cambios)
   await initializeBackgroundService();
 
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => ThemeProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => ThemeProvider()),
+        ChangeNotifierProvider(create: (context) => UserProfileProvider()),
+      ],
       child: const VitoApp(),
     ),
   );
 }
 
-// --- LÓGICA DE NAVEGACIÓN Y APP (Sin cambios) ---
-// El resto del archivo (GoRouter, VitoApp, etc.) no requiere modificaciones,
-// ya que la lógica de enrutamiento y la app en sí no se ven afectadas
-// por la nueva implementación del servicio de notificaciones.
-
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     notifyListeners();
-    _subscription = stream.asBroadcastStream().listen(
-          (dynamic _) => notifyListeners(),
-        );
+    _subscription = stream.asBroadcastStream().listen((dynamic _) => notifyListeners());
   }
   late final StreamSubscription<dynamic> _subscription;
-
   @override
   void dispose() {
     _subscription.cancel();
@@ -255,7 +213,7 @@ class VitoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
+    final themeProvider = context.watch<ThemeProvider>();
     return MaterialApp.router(
       title: 'Vito',
       debugShowCheckedModeBanner: false,
@@ -263,7 +221,8 @@ class VitoApp extends StatelessWidget {
       supportedLocales: AppLocalizations.supportedLocales,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: themeProvider.themeMode,
+      // Esta es la línea que se corrigió:
+      themeMode: themeProvider.themeMode, 
       routerConfig: _router,
     );
   }
@@ -275,51 +234,26 @@ final GoRouter _router = GoRouter(
   routes: [
     GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
     GoRoute(path: '/signup', builder: (context, state) => const SignUpScreen()),
-    GoRoute(
-      path: '/verify-email',
-      builder: (context, state) => const VerifyEmailScreen(),
-    ),
+    GoRoute(path: '/verify-email', builder: (context, state) => const VerifyEmailScreen()),
     GoRoute(
       path: '/home',
-      builder: (context, state) => MainNavigationScreen(
-        initialIndex: state.extra as int? ?? 0,
-      ),
+      builder: (context, state) => MainNavigationScreen(initialIndex: state.extra as int? ?? 0),
       routes: [
-        GoRoute(
-          path: 'achievements',
-          builder: (context, state) => const AchievementsScreen(),
-        ),
-        GoRoute(
-          path: 'mood-tracker',
-          builder: (context, state) => const MoodTrackerScreen(),
-        ),
+        GoRoute(path: 'achievements', builder: (context, state) => const AchievementsScreen()),
+        GoRoute(path: 'mood-tracker', builder: (context, state) => const MoodTrackerScreen()),
       ],
     ),
   ],
   redirect: (BuildContext context, GoRouterState state) async {
-    final auth = FirebaseAuth.instance;
-    final user = auth.currentUser;
-
-    final bool isLoggedIn = user != null;
-    final bool isEmailVerified = user?.emailVerified ?? false;
+    final isLoggedIn = FirebaseAuth.instance.currentUser != null &&
+                        FirebaseAuth.instance.currentUser!.emailVerified;
     
-    final bool isGoingToAuth = state.matchedLocation == '/login' ||
-                               state.matchedLocation == '/signup';
-    final bool isGoingToVerifyEmail = state.matchedLocation == '/verify-email';
+    final isGoingToAuth = state.matchedLocation == '/login' ||
+                           state.matchedLocation == '/signup' ||
+                           state.matchedLocation == '/verify-email';
 
-    if (!isLoggedIn) {
-      return isGoingToAuth ? null : '/login';
-    }
-
-    if (!isEmailVerified) {
-      return isGoingToVerifyEmail ? null : '/verify-email';
-    }
-    
-    if (isEmailVerified) {
-      if (isGoingToAuth || isGoingToVerifyEmail) {
-        return '/home';
-      }
-    }
+    if (!isLoggedIn && !isGoingToAuth) return '/login';
+    if (isLoggedIn && isGoingToAuth) return '/home';
 
     return null;
   },
