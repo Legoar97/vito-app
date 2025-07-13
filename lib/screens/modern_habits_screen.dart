@@ -18,7 +18,6 @@ import '../services/notification_service.dart';
 // Controllers
 import '../controllers/habits_controller.dart';
 import '../controllers/timer_controller.dart';
-import '../controllers/tutorial_controller.dart';
 
 // Widgets
 import '../widgets/progress_card.dart';
@@ -26,7 +25,6 @@ import '../widgets/habits_app_bar.dart';
 import '../widgets/suggestions_section.dart';
 import '../widgets/coach_welcome_view.dart';
 import '../widgets/habit_cards/habit_card_factory.dart';
-import '../widgets/tutorial/tutorial_overlay.dart';
 
 class ModernHabitsScreen extends StatefulWidget {
   const ModernHabitsScreen({super.key});
@@ -80,101 +78,79 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // Tus controladores no reciben argumentos, así que los creamos vacíos.
         ChangeNotifierProvider(create: (_) => HabitsController()),
         ChangeNotifierProvider(create: (_) => TimerController()),
-        ChangeNotifierProvider(create: (_) => TutorialController()),
       ],
-      child: Consumer3<HabitsController, TimerController, TutorialController>(
-        builder: (context, habitsCtrl, timerCtrl, tutorialCtrl, child) {
-          if (tutorialCtrl.showTutorial == false && habitsCtrl.userName.isNotEmpty) {
-            tutorialCtrl.checkOnboardingStatus();
+      child: Consumer2<HabitsController, TimerController>(
+        builder: (context, habitsCtrl, timerCtrl, child) {
+          // Si debe mostrar el coach welcome, mostramos solo eso
+          if (habitsCtrl.showCoachWelcome) {
+            return CoachWelcomeView(
+              animationController: _animationController,
+              onCategorySelected: (String category) {
+                habitsCtrl.dismissCoachWelcome();
+                habitsCtrl.getAiHabitSuggestions(category);
+              },
+            );
           }
 
+          // Si no, mostramos la pantalla normal
           return Scaffold(
             backgroundColor: const Color(0xFFF8FAFC),
             body: Stack(
               children: [
-                _buildMainContent(habitsCtrl, timerCtrl, tutorialCtrl),
-                if (!tutorialCtrl.showTutorial) _buildIdeaChip(habitsCtrl),
-                if (tutorialCtrl.showTutorial)
-                  TutorialOverlay(
-                    controller: tutorialCtrl,
-                    userName: habitsCtrl.userName,
-                    onComplete: _showAddHabitBottomSheet,
-                  ),
+                _buildMainContent(habitsCtrl, timerCtrl),
+                _buildIdeaChip(habitsCtrl),
               ],
             ),
-            floatingActionButton: Container(
-              key: tutorialCtrl.fabKey,
-              child: _buildFloatingActionButton(),
-            ),
+            floatingActionButton: _buildFloatingActionButton(),
           );
         },
       ),
     );
   }
 
-  Widget _buildMainContent(HabitsController habitsCtrl, TimerController timerCtrl, TutorialController tutorialCtrl) {
-    return AbsorbPointer(
-      absorbing: tutorialCtrl.showTutorial,
-      child: CustomScrollView(
-        physics: tutorialCtrl.showTutorial ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
-        controller: _scrollController,
-        slivers: [
-          HabitsAppBar(
+  Widget _buildMainContent(HabitsController habitsCtrl, TimerController timerCtrl) {
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      controller: _scrollController,
+      slivers: [
+        HabitsAppBar(
+          animationController: _animationController,
+          scrollOffset: _scrollOffset,
+          selectedDate: habitsCtrl.selectedDate,
+          onDateChanged: habitsCtrl.updateSelectedDate,
+          onPreviousDay: habitsCtrl.navigatePreviousDay,
+          onNextDay: habitsCtrl.navigateNextDay,
+          greeting: habitsCtrl.getGreeting(),
+          quote: habitsCtrl.getMotivationalQuote(),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+            child: _buildProgressSection(habitsCtrl),
+          ),
+        ),
+        if (habitsCtrl.isLoadingSuggestions) _buildLoadingSuggestionsIndicator(),
+        if (habitsCtrl.suggestedHabits.isNotEmpty)
+          SuggestionsSection(
+            suggestions: habitsCtrl.suggestedHabits,
             animationController: _animationController,
-            scrollOffset: _scrollOffset,
-            selectedDate: habitsCtrl.selectedDate,
-            onDateChanged: habitsCtrl.updateSelectedDate,
-            onPreviousDay: habitsCtrl.navigatePreviousDay,
-            onNextDay: habitsCtrl.navigateNextDay,
-            greeting: habitsCtrl.getGreeting(),
-            quote: habitsCtrl.getMotivationalQuote(),
+            onAddHabit: _addSuggestedHabitWithForm,
+            onDismiss: habitsCtrl.clearSuggestions,
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Container(
-                key: tutorialCtrl.progressCardKey,
-                child: _buildProgressSection(habitsCtrl, tutorialCtrl),
-              ),
-            ),
-          ),
-          if (habitsCtrl.isLoadingSuggestions) _buildLoadingSuggestionsIndicator(),
-          if (habitsCtrl.suggestedHabits.isNotEmpty)
-            SuggestionsSection(
-              suggestions: habitsCtrl.suggestedHabits,
-              animationController: _animationController,
-              onAddHabit: _addSuggestedHabitWithForm,
-              onDismiss: habitsCtrl.clearSuggestions,
-            ),
-          _buildHabitsListHeader(habitsCtrl),
-          _buildHabitsList(habitsCtrl, timerCtrl, tutorialCtrl),
-          const SliverToBoxAdapter(child: SizedBox(height: 120)),
-        ],
-      ),
+        _buildHabitsListHeader(habitsCtrl),
+        _buildHabitsList(habitsCtrl, timerCtrl),
+        const SliverToBoxAdapter(child: SizedBox(height: 120)),
+      ],
     );
   }
 
-  Widget _buildProgressSection(HabitsController habitsCtrl, TutorialController tutorialCtrl) {
+  Widget _buildProgressSection(HabitsController habitsCtrl) {
     return StreamBuilder<QuerySnapshot>(
       stream: habitsCtrl.allHabitsStream,
       builder: (context, snapshot) {
         final allHabits = snapshot.data?.docs ?? [];
-        
-        // --- LLAMADA A PROGRESSCARD CORREGIDA ---
-        if (tutorialCtrl.showTutorial) {
-          return ProgressCard(
-            allHabits: const [], // Se pasa una lista vacía
-            totalHabits: 0,
-            completedHabits: 0,
-            progress: 0.0,
-            streak: 0,
-            animationController: _animationController,
-          );
-        }
-
         final progressData = habitsCtrl.getProgressForSelectedDay(allHabits);
         final streak = habitsCtrl.getStreakFromHabitsData(allHabits);
 
@@ -190,11 +166,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
     );
   }
 
-  Widget _buildHabitsList(HabitsController habitsCtrl, TimerController timerCtrl, TutorialController tutorialCtrl) {
-    if (tutorialCtrl.showTutorial) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
-    }
-
+  Widget _buildHabitsList(HabitsController habitsCtrl, TimerController timerCtrl) {
     return StreamBuilder<QuerySnapshot>(
       stream: habitsCtrl.allHabitsStream,
       builder: (context, snapshot) {
@@ -230,8 +202,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
                   data: data,
                   selectedDate: habitsCtrl.selectedDate,
                   onToggleSimple: habitsCtrl.toggleSimpleHabit,
-                  // --- LLAMADA FINAL Y CORRECTA ---
-                  // Se pasa directamente la función del controlador que ahora solo pide (habitId, change)
                   onUpdateQuantifiable: habitsCtrl.updateQuantifiableProgress,
                   onStartTimer: timerCtrl.startTimer,
                   onStopTimer: timerCtrl.stopTimer,
@@ -248,7 +218,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
     );
   }
   
-  // --- WIDGETS Y FUNCIONES AUXILIARES (COMPLETOS Y SIN DUPLICADOS) ---
+  // --- WIDGETS Y FUNCIONES AUXILIARES ---
 
   SliverToBoxAdapter _buildLoadingSuggestionsIndicator() {
     return SliverToBoxAdapter(
@@ -386,8 +356,6 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
   }
 
   void _showEditHabitBottomSheet(String habitId, Map<String, dynamic> data) {
-    // --- CONSTRUCTOR CORREGIDO SIN 'fromMap' ---
-    // Se construye el objeto Habit directamente con su constructor por defecto.
     final timeData = data['specificTime'] as Map<String, dynamic>? ?? {'hour': 12, 'minute': 0};
     final habit = Habit(
       id: habitId,

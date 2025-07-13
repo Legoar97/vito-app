@@ -319,41 +319,54 @@ Widget _buildFloatingHeader() {
 
     HapticFeedback.lightImpact();
 
-    final userMessage = ChatMessage(text: messageText, type: MessageType.user, timestamp: DateTime.now());
-    setState(() { _messages.add(userMessage); _isTyping = true; });
+    // 1. Añadimos el mensaje del usuario a la lista
+    final userMessage = ChatMessage(
+      text: messageText, 
+      type: MessageType.user, 
+      timestamp: DateTime.now()
+    );
+    setState(() { 
+      _messages.add(userMessage); 
+      _isTyping = true; 
+    });
     _messageController.clear();
     _scrollToBottom();
 
-    String responseText;
-    try {
-      final classification = await VertexAIService.classifyIntentAndSentiment(userMessage: messageText, conversationHistory: _messages);
-      final intent = classification['intent'] ?? 'general_chat';
-      final sentiment = classification['sentiment'] ?? 'neutral';
+    // 2. Obtenemos el contexto del usuario (esto no cambia)
+    final userContext = await _getUserContext();
 
-      switch (intent) {
-        case 'greeting': responseText = messageText.toLowerCase().contains('cómo estás') ? '¡Gracias por preguntar! 😊 Estoy listo y con toda la energía para ayudarte. ¿Cómo estás tú hoy?' : '¡Hola de nuevo, ¿cómo estás?! ¿Hay algo en lo que pueda ayudarte o alguna idea que te ronde la cabeza hoy?'; break;
-        case 'crisis': responseText = 'Comprendo que estás en un momento extremadamente difícil. Es muy valiente de tu parte buscar ayuda.\n\n**Por favor, debes saber que no soy un profesional de la salud. Lo más importante ahora es que hables con alguien que sí pueda ofrecerte el apoyo que necesitas.**\n\nContacta a una línea de prevención de crisis o a un servicio de emergencia de inmediato. No estás solo en esto. Tu vida es increíblemente valiosa.'; break;
-        case 'venting': responseText = await VertexAIService.getCompassionateResponse(conversationHistory: _messages); break;
-        default:
-          if (sentiment == 'negative' && intent != 'seeking_advice') {
-            responseText = await VertexAIService.getCompassionateResponse(conversationHistory: _messages);
-          } else {
-            final userContext = await _getUserContext();
-            responseText = await VertexAIService.getHabitAdvice(conversationHistory: _messages, userContext: userContext);
-          }
-          break;
+    // 3. Hacemos UNA SOLA llamada a la IA con todo el historial y contexto
+    try {
+      final responseText = await VertexAIService.getSmartResponse(
+        conversationHistory: _messages,
+        userContext: userContext,
+      );
+
+      // 4. Añadimos la respuesta de Vito
+      if (mounted) {
+        setState(() {
+          _isTyping = false;
+          _messages.add(ChatMessage(
+            text: responseText, 
+            type: MessageType.vito, 
+            timestamp: DateTime.now()
+          ));
+        });
+        _scrollToBottom();
       }
     } catch (e) {
-      print('Error en la lógica de _sendMessage: $e');
-      responseText = "Uups, parece que mis circuitos se cruzaron por un momento. ¿Podrías repetirme eso, por favor?";
-    }
-
-    if (mounted) {
-      setState(() {
-        _isTyping = false;
-        _messages.add(ChatMessage(text: responseText, type: MessageType.vito, timestamp: DateTime.now()));
-      });
-      _scrollToBottom();
+      print('🚨 Error en la llamada principal a la IA: $e');
+      if (mounted) {
+        setState(() {
+          _isTyping = false;
+          _messages.add(ChatMessage(
+            text: "Uups, mis circuitos se cruzaron. ¿Podrías repetirme eso?",
+            type: MessageType.vito,
+            timestamp: DateTime.now(),
+          ));
+        });
+        _scrollToBottom();
+      }
     }
   }
 

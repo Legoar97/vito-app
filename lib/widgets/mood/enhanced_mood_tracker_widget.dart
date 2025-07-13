@@ -1,3 +1,6 @@
+// lib/widgets/mood/enhanced_mood_tracker_widget.dart
+
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -8,7 +11,6 @@ import '../../theme/app_colors.dart';
 import '../../services/mood_ai_service.dart';
 import 'mood_item.dart';
 import 'mood_journal_widget.dart';
-// Se ha eliminado la importación de 'next_checkin_widget.dart'
 
 class EnhancedMoodTrackerWidget extends StatefulWidget {
   final AnimationController animationController;
@@ -33,10 +35,19 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
   DateTime? _nextCheckIn;
   bool _canCheckIn = true;
 
+  Timer? _countdownTimer;
+  String _countdownText = '';
+
   @override
   void initState() {
     super.initState();
     _checkLastMoodEntry();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _checkLastMoodEntry() async {
@@ -54,18 +65,13 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
       if (snapshot.docs.isNotEmpty) {
         final lastEntry = snapshot.docs.first.data();
         if (lastEntry['nextCheckIn'] != null) {
-          final nextCheckIn = (lastEntry['nextCheckIn'] as Timestamp).toDate();
-          if (nextCheckIn.isAfter(DateTime.now())) {
-            if (mounted) {
-              setState(() {
-                _nextCheckIn = nextCheckIn;
-                _canCheckIn = false;
-              });
-            }
-          } else {
-            if (mounted) {
-              setState(() => _canCheckIn = true);
-            }
+          final next = (lastEntry['nextCheckIn'] as Timestamp).toDate();
+          if (next.isAfter(DateTime.now())) {
+            setState(() {
+              _nextCheckIn = next;
+              _canCheckIn = false;
+            });
+            _startCountdown();
           }
         }
       }
@@ -74,8 +80,39 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
     }
   }
 
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _updateCountdown();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _updateCountdown();
+    });
+  }
+
+  void _updateCountdown() {
+    if (_nextCheckIn == null) return;
+
+    final remaining = _nextCheckIn!.difference(DateTime.now());
+    if (remaining.isNegative) {
+      _countdownTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _canCheckIn = true;
+          _countdownText = '';
+        });
+      }
+    } else {
+      final h = remaining.inHours.toString().padLeft(2, '0');
+      final m = (remaining.inMinutes % 60).toString().padLeft(2, '0');
+      final s = (remaining.inSeconds % 60).toString().padLeft(2, '0');
+      if (mounted) {
+        setState(() {
+          _countdownText = '$h:$m:$s';
+        });
+      }
+    }
+  }
+
   Future<void> _selectMood(Mood mood) async {
-    // Si el tiempo no ha pasado, muestra la SnackBar y detiene la acción.
     if (!_canCheckIn) {
       HapticFeedback.mediumImpact();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -103,7 +140,6 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
       return;
     }
 
-    // Si puede registrar, continúa con la lógica normal.
     setState(() {
       _selectedMood = mood;
       _isLoading = true;
@@ -114,21 +150,25 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
     try {
       final recentMoods = await _getRecentMoods();
       final response = await MoodAiService.generateMoodResponse(
-        mood.name,
-        recentMoods,
+        mood: mood.name,
+        userContext: {'recentMoods': recentMoods ?? ''},
       );
 
-      setState(() {
-        _aiResponse = response;
-        _showJournal = true;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _aiResponse = response;
+          _showJournal = true;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _aiResponse = 'Me alegra que compartas cómo te sientes.';
-        _showJournal = true;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _aiResponse = 'Me alegra que compartas cómo te sientes.';
+          _showJournal = true;
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -168,33 +208,34 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
 
       widget.onMoodSaved?.call(_selectedMood!.name);
 
-      setState(() {
-        _showJournal = false;
-        _selectedMood = null;
-        _aiResponse = null;
-        _nextCheckIn = nextCheckIn;
-        _canCheckIn = false;
-        _isLoading = false;
-      });
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Tu estado de ánimo ha sido registrado',
-              style: GoogleFonts.poppins(),
-            ),
-            backgroundColor: _selectedMood!.baseColor,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-             margin: const EdgeInsets.all(16),
-          ),
-        );
+        setState(() {
+          _showJournal = false;
+          _selectedMood = null;
+          _aiResponse = null;
+          _nextCheckIn = nextCheckIn;
+          _canCheckIn = false;
+          _isLoading = false;
+        });
+        _startCountdown();
       }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Tu estado de ánimo ha sido registrado',
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor: _selectedMood!.baseColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       print('Error saving mood: $e');
     }
   }
@@ -207,20 +248,39 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
         aiResponse: _aiResponse,
         onJournalSaved: _saveMood,
         onCancel: () {
-          setState(() {
-            _showJournal = false;
-            _selectedMood = null;
-            _aiResponse = null;
-          });
+          if (mounted) {
+            setState(() {
+              _showJournal = false;
+              _selectedMood = null;
+              _aiResponse = null;
+            });
+          }
         },
       );
     }
 
     return Column(
       children: [
-        // Se eliminó el widget del contador.
-        
-        // Grid de moods
+        // Banner de cuenta regresiva
+        if (!_canCheckIn && _countdownText.isNotEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: AppColors.secondary.withOpacity(0.9),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'Vuelve en $_countdownText',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+
         FadeTransition(
           opacity: CurvedAnimation(
             parent: widget.animationController,
@@ -264,7 +324,6 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
                   itemCount: MoodData.moods.length,
                   itemBuilder: (context, index) {
                     final mood = MoodData.moods[index];
-                    // Se quitó el widget Opacity para evitar el efecto "lavado".
                     return MoodItem(
                       mood: mood,
                       isSelected: _selectedMood == mood,

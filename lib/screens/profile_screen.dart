@@ -21,6 +21,10 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateMixin {
   late AnimationController _fadeController;
 
+  final TextEditingController _deletePasswordController = TextEditingController();
+  bool _isDeleting = false;
+
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +45,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   @override
   void dispose() {
     _fadeController.dispose();
+    _deletePasswordController.dispose();
     super.dispose();
   }
 
@@ -113,55 +118,49 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     );
   }
 
-  void _showDeleteAccountDialog() {
-    showDialog<void>(
+  /// Método para mostrar diálogo de eliminación con re-autenticación
+  Future<void> _showDeleteAccountDialog() async {
+    // Limpiar controlador de contraseña
+    _deletePasswordController.clear();
+
+    // Mostrar diálogo para ingresar contraseña
+    final shouldDelete = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Eliminar Cuenta', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.red)),
+        title: Text(
+          'Eliminar Cuenta',
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            color: Colors.red,
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '¿Estás seguro de que quieres eliminar tu cuenta?',
+              'Para eliminar tu cuenta, ingresa tu contraseña:',
               style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 12),
-            Text(
-              'Esta acción es irreversible. Se eliminarán:',
-              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '• Todos tus hábitos\n• Tu historial de progreso\n• Todas tus estadísticas',
-              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[700]),
+            TextField(
+              controller: _deletePasswordController,
+              decoration: InputDecoration(
+                labelText: 'Contraseña',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              obscureText: true,
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(ctx).pop(false),
             child: Text('Cancelar', style: GoogleFonts.poppins(color: Colors.grey[700])),
           ),
           ElevatedButton(
-            onPressed: () async {
-              try {
-                // Aquí deberías agregar la lógica para eliminar los datos del usuario de Firestore
-                final user = FirebaseAuth.instance.currentUser;
-                if (user != null) {
-                  // Eliminar el usuario de Firebase Auth
-                  await user.delete();
-                  if(mounted) context.go('/login');
-                }
-              } catch (e) {
-                // Manejar errores
-                Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error al eliminar la cuenta: $e')),
-                );
-              }
-            },
+            onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -172,7 +171,40 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         ],
       ),
     );
+
+    // Si el usuario cancela, no hacer nada
+    if (shouldDelete != true) return;
+
+    setState(() => _isDeleting = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        // Re-autenticar con email y contraseña
+        final cred = EmailAuthProvider.credential(
+          email: user.email!,
+          password: _deletePasswordController.text.trim(),
+        );
+        await user.reauthenticateWithCredential(cred);
+
+        // Eliminar usuario de Firebase Auth
+        await user.delete();
+
+        // Redirigir al login
+        if (mounted) context.go('/login');
+      }
+    } on FirebaseAuthException catch (e) {
+      // Manejo de errores (ej. contraseña incorrecta)
+      final message = e.code == 'wrong-password'
+          ? 'Contraseña incorrecta.'
+          : 'Error al eliminar la cuenta.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      setState(() => _isDeleting = false);
+    }
   }
+
 
   @override
   Widget build(BuildContext context) {
