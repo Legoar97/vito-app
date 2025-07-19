@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // --- INICIO DE CAMBIOS CLAVE ---
 // Se añaden los imports necesarios para la configuración de zonas horarias.
@@ -91,6 +92,27 @@ class NotificationService {
           print('Error al guardar token FCM: $e');
         }
       }
+    }
+  }
+
+  static Future<bool> requestNotificationPermissions() async {
+    // 1. Permiso para mostrar notificaciones (Android 13+)
+    final notificationStatus = await Permission.notification.request();
+    
+    // 2. Permiso para programar alarmas exactas (Android 12+)
+    final scheduleStatus = await Permission.scheduleExactAlarm.request();
+
+    if (notificationStatus.isGranted && scheduleStatus.isGranted) {
+      print("Todos los permisos de notificación fueron concedidos.");
+      return true;
+    } else {
+      print("Uno o más permisos de notificación fueron denegados.");
+      // Opcional: podrías abrir los ajustes de la app si un permiso
+      // fue denegado permanentemente.
+      if (notificationStatus.isPermanentlyDenied || scheduleStatus.isPermanentlyDenied) {
+        openAppSettings();
+      }
+      return false;
     }
   }
 

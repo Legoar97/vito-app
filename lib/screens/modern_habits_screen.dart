@@ -45,6 +45,8 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
     super.initState();
     _initializeAnimations();
     _initializeServices();
+
+    NotificationService.requestNotificationPermissions();
   }
 
   void _initializeAnimations() {
@@ -83,18 +85,22 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
       ],
       child: Consumer2<HabitsController, TimerController>(
         builder: (context, habitsCtrl, timerCtrl, child) {
-          // Si debe mostrar el coach welcome, mostramos solo eso
+          // Si debe mostrar el coach welcome, mostramos la nueva versión
           if (habitsCtrl.showCoachWelcome) {
+            // --- INICIO DE LA CORRECCIÓN ---
             return CoachWelcomeView(
               animationController: _animationController,
-              onCategorySelected: (String category) {
+              // Usamos el nuevo callback 'onOnboardingComplete' que no necesita parámetros
+              onOnboardingComplete: () {
+                // Al pulsar "Entendido", simplemente llamamos a la función
+                // que se encarga de ocultar la bienvenida y actualizar el estado.
                 habitsCtrl.dismissCoachWelcome();
-                habitsCtrl.getAiHabitSuggestions(category);
               },
             );
+            // --- FIN DE LA CORRECCIÓN ---
           }
 
-          // Si no, mostramos la pantalla normal
+          // Si no, mostramos la pantalla principal normal (esto no cambia)
           return Scaffold(
             backgroundColor: const Color(0xFFF8FAFC),
             body: Stack(
@@ -170,8 +176,18 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
     return StreamBuilder<QuerySnapshot>(
       stream: habitsCtrl.allHabitsStream,
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const SliverToBoxAdapter(child: Center(child: CircularProgressIndicator()));
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.all(50.0),
+              child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+            ),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          // Aunque se comprueba en el controller, una segunda capa de seguridad no hace daño
+          return _buildEmptyHabitsMessage(); 
         }
 
         final allHabits = snapshot.data!.docs;
@@ -180,6 +196,12 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
         if (habitsForDay.isEmpty) {
           return _buildEmptyHabitsMessage();
         }
+
+        // --- INICIO DE LA CORRECCIÓN ---
+        // 1. Se determina si la fecha seleccionada NO es hoy.
+        // Esta variable controlará si las tarjetas de hábitos deben estar "bloqueadas".
+        final bool isDayLocked = !habitsCtrl.isSameDay(habitsCtrl.selectedDate, DateTime.now());
+        // --- FIN DE LA CORRECCIÓN ---
 
         return SliverList(
           delegate: SliverChildBuilderDelegate(
@@ -201,11 +223,22 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
                   habitId: habitDoc.id,
                   data: data,
                   selectedDate: habitsCtrl.selectedDate,
-                  onToggleSimple: habitsCtrl.toggleSimpleHabit,
-                  onUpdateQuantifiable: habitsCtrl.updateQuantifiableProgress,
-                  onStartTimer: timerCtrl.startTimer,
-                  onStopTimer: timerCtrl.stopTimer,
+                  
+                  // --- INICIO DE LA CORRECCIÓN ---
+                  // 2. Se usan operadores ternarios para pasar las funciones de interacción
+                  //    solo si el día NO está bloqueado (es decir, si es hoy).
+                  //    Si el día está bloqueado, se pasa 'null', lo que desactiva los botones
+                  //    en las tarjetas (asumiendo que las tarjetas ya están preparadas para ello).
+                  onToggleSimple: isDayLocked ? null : habitsCtrl.toggleSimpleHabit,
+                  onUpdateQuantifiable: isDayLocked ? null : habitsCtrl.updateQuantifiableProgress,
+                  onStartTimer: isDayLocked ? null : timerCtrl.startTimer,
+                  onStopTimer: isDayLocked ? null : timerCtrl.stopTimer,
+                  
+                  // La pulsación larga para editar la definición del hábito se mantiene siempre activa,
+                  // ya que es una acción que no depende del registro de un día concreto.
                   onLongPress: _showEditHabitBottomSheet,
+                  // --- FIN DE LA CORRECCIÓN ---
+
                   activeTimerHabitId: timerCtrl.activeTimerHabitId,
                   timerSecondsRemaining: timerCtrl.timerSecondsRemaining,
                 ),
@@ -217,6 +250,7 @@ class _ModernHabitsScreenState extends State<ModernHabitsScreen> with TickerProv
       },
     );
   }
+
   
   // --- WIDGETS Y FUNCIONES AUXILIARES ---
 

@@ -148,11 +148,27 @@ class _EnhancedMoodTrackerWidgetState extends State<EnhancedMoodTrackerWidget> {
     HapticFeedback.mediumImpact();
 
     try {
+      // --- INICIO DE LA CORRECIÓn ---
+
+      // 1. Obtenemos los datos que ya teníamos
       final recentMoods = await _getRecentMoods();
+
+      // 2. Creamos un mapa de contexto COMPLETO con los datos del usuario.
+      //    Utilizamos la variable 'user' que ya está definida en el estado del widget.
+      final Map<String, dynamic> currentUserContext = {
+        'uid': user?.uid,
+        'displayName': user?.displayName, // <-- LA PIEZA CLAVE QUE FALTABA
+        'email': user?.email,
+        'recentMoods': recentMoods ?? '', // Mantenemos la información que ya teníamos
+      };
+      
+      // 3. Llamamos al servicio con el contexto completo
       final response = await MoodAiService.generateMoodResponse(
         mood: mood.name,
-        userContext: {'recentMoods': recentMoods ?? ''},
+        userContext: currentUserContext,
       );
+      
+      // --- FIN DE LA CORRECCIÓN ---
 
       if (mounted) {
         setState(() {

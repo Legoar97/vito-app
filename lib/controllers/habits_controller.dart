@@ -65,17 +65,35 @@ class HabitsController extends ChangeNotifier {
     }
     
     notifyListeners();
-    await _checkIfFirstTime();
+    await _checkOnboardingStatus();
   }
 
-  Future<void> _checkIfFirstTime() async {
+  Future<void> _checkOnboardingStatus() async {
     if (user == null) return;
-    await Future.delayed(const Duration(seconds: 1));
-    final snapshot = await FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').limit(1).get();
-    if (snapshot.docs.isEmpty) {
-      _showCoachWelcome = true;
-      notifyListeners();
+
+    try {
+      // 1. Obtenemos el DOCUMENTO PRINCIPAL del usuario, no su subcolección de hábitos.
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user!.uid)
+          .get();
+
+      // 2. Comprobamos el campo 'onboardingCompleted'.
+      // Si no existe (??) o es 'false', entonces mostramos la bienvenida.
+      if (userDoc.exists && (userDoc.data()?['onboardingCompleted'] ?? false) == false) {
+        _showCoachWelcome = true;
+      } else {
+        // Si el campo es 'true', NO mostramos la bienvenida.
+        _showCoachWelcome = false;
+      }
+    } catch (e) {
+      // En caso de error, no bloqueamos al usuario. Asumimos que no se debe mostrar.
+      _showCoachWelcome = false;
+      print("Error al verificar el estado de onboarding: $e");
     }
+
+    // Notificamos a la UI del resultado
+    notifyListeners();
   }
 
   void updateSelectedDate(DateTime date) {
@@ -126,9 +144,26 @@ class HabitsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void dismissCoachWelcome() {
+  Future<void> dismissCoachWelcome() async {
+    // 1. Oculta la pantalla en la UI inmediatamente para que se sienta rápido.
     _showCoachWelcome = false;
     notifyListeners();
+
+    // 2. Obtén el usuario actual para saber a quién actualizar.
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return; // Si no hay usuario, no hacemos nada.
+
+    try {
+      // 3. ¡ESTA ES LA LÍNEA MÁGICA!
+      //    Guarda el cambio permanentemente en la base de datos de Firestore.
+      await FirebaseFirestore.instance
+          .collection('users') // Asegúrate que tu colección se llame 'users'
+          .doc(user.uid)
+          .update({'onboardingCompleted': true});
+    } catch (e) {
+      // Es una buena práctica registrar cualquier error que pueda ocurrir.
+      print('Error al guardar el estado de onboarding: $e');
+    }
   }
 
   Future<void> toggleSimpleHabit(String habitId, bool isCurrentlyCompleted) async {
@@ -136,46 +171,44 @@ class HabitsController extends ChangeNotifier {
     
     final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
     final habitRef = FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').doc(habitId);
-    
-    await habitRef.set({
-      'completions': {
-        todayKey: {
-          'progress': isCurrentlyCompleted ? 0 : 1,
-          'completed': !isCurrentlyCompleted,
-        }
+
+    // Usamos 'update' para modificar un campo específico dentro del mapa 'completions'
+    await habitRef.update({
+      // La notación de punto le dice a Firestore que navegue dentro del mapa
+      'completions.$todayKey': {
+        'progress': isCurrentlyCompleted ? 0 : 1,
+        'completed': !isCurrentlyCompleted,
       }
-    }, SetOptions(merge: true));
+    });
   }
   
   // --- FUNCIÓN CORREGIDA Y SIMPLIFICADA ---
   Future<void> updateQuantifiableProgress(String habitId, int change) async {
+    // El guard clause que limita la edición a hoy es una decisión de diseño, ¡está bien!
     if (user == null || !isSameDay(_selectedDate, DateTime.now())) return;
 
     final habitRef = FirebaseFirestore.instance.collection('users').doc(user!.uid).collection('habits').doc(habitId);
 
-    // Usamos una transacción para evitar problemas de concurrencia
     await FirebaseFirestore.instance.runTransaction((transaction) async {
       final habitSnapshot = await transaction.get(habitRef);
       if (!habitSnapshot.exists) return;
 
       final data = habitSnapshot.data() as Map<String, dynamic>;
-      final target = data['targetValue'] as int? ?? 1;
+      final target = data['targetValue'] as int? ?? 1; 
       final todayKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
       
       final completions = data['completions'] as Map<String, dynamic>? ?? {};
-      final currentProgress = (completions[todayKey]?['progress'] as int?) ?? 0;
+      final currentProgress = (completions[todayKey]?['progress'] as num?)?.toInt() ?? 0;
 
       final newProgress = (currentProgress + change).clamp(0, target);
 
-      // Actualizamos el documento dentro de la transacción
-      transaction.set(habitRef, {
-        'completions': {
-          todayKey: {
-            'progress': newProgress,
-            'completed': newProgress >= target,
-          }
+      // Usamos 'transaction.update' para la máxima seguridad y precisión
+      transaction.update(habitRef, {
+        'completions.$todayKey': {
+          'progress': newProgress,
+          'completed': newProgress >= target,
         }
-      }, SetOptions(merge: true));
+      });
     });
   }
 

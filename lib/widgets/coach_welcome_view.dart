@@ -7,49 +7,18 @@ import '../theme/app_colors.dart';
 
 class CoachWelcomeView extends StatelessWidget {
   final AnimationController animationController;
-  final Function(String) onCategorySelected;
+  // ELIMINAMOS 'onCategorySelected' Y AÑADIMOS 'onOnboardingComplete'
+  final VoidCallback onOnboardingComplete;
 
   const CoachWelcomeView({
     Key? key,
     required this.animationController,
-    required this.onCategorySelected,
+    required this.onOnboardingComplete, // <-- Parámetro nuevo y más claro
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final categories = [
-      {
-        'name': 'Salud',
-        'icon': Icons.favorite_rounded,
-        'color': AppColors.categoryHealth,
-        'gradient': [const Color(0xFF4ADE80), const Color(0xFF22C55E)]
-      },
-      {
-        'name': 'Mente',
-        'icon': Icons.self_improvement,
-        'color': AppColors.categoryMind,
-        'gradient': [const Color(0xFF818CF8), const Color(0xFF6366F1)]
-      },
-      {
-        'name': 'Trabajo',
-        'icon': Icons.work_rounded,
-        'color': AppColors.categoryProductivity,
-        'gradient': [const Color(0xFF60A5FA), const Color(0xFF3B82F6)]
-      },
-      {
-        'name': 'Creativo',
-        'icon': Icons.palette_rounded,
-        'color': AppColors.categoryCreativity,
-        'gradient': [const Color(0xFFFBBF24), const Color(0xFFF59E0B)]
-      },
-      {
-        'name': 'Finanzas',
-        'icon': Icons.attach_money_rounded,
-        'color': AppColors.categoryFinance,
-        'gradient': [const Color(0xFFA78BFA), const Color(0xFF8B5CF6)]
-      },
-    ];
-
+    // La estructura principal y el fondo se mantienen, son muy bonitos.
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: Container(
@@ -68,14 +37,17 @@ class CoachWelcomeView extends StatelessWidget {
             padding: const EdgeInsets.all(24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch, // Para centrar el botón
               children: [
                 _buildLogo(),
                 const SizedBox(height: 32),
                 _buildTitle(),
-                const SizedBox(height: 12),
-                _buildSubtitle(),
+                const SizedBox(height: 16),
+                // HEMOS CAMBIADO EL SUBTÍTULO POR UN TEXTO INFORMATIVO
+                _buildInfoText(),
                 const SizedBox(height: 48),
-                _buildCategoryGrid(categories),
+                // HEMOS REEMPLAZADO LA CUADRÍCULA DE CATEGORÍAS POR UN ÚNICO BOTÓN
+                _buildContinueButton(),
               ],
             ),
           ),
@@ -84,6 +56,7 @@ class CoachWelcomeView extends StatelessWidget {
     );
   }
 
+  // El logo y el título se mantienen igual
   Widget _buildLogo() {
     return ScaleTransition(
       scale: CurvedAnimation(
@@ -107,7 +80,7 @@ class CoachWelcomeView extends StatelessWidget {
           ],
         ),
         child: const Icon(
-          Icons.spa,
+          Icons.spa_rounded, // Un icono ligeramente diferente y más redondeado
           size: 50,
           color: Colors.white,
         ),
@@ -127,75 +100,44 @@ class CoachWelcomeView extends StatelessWidget {
     );
   }
 
-  Widget _buildSubtitle() {
+  // WIDGET MODIFICADO: Ahora es un texto de bienvenida más general.
+  Widget _buildInfoText() {
     return Text(
-      "Tu coach personal de bienestar.\n¿En qué área te gustaría enfocarte hoy?",
+      "Estoy aquí para ayudarte a construir hábitos positivos y mejorar tu bienestar día a día.\n\n¡Empecemos este viaje juntos!",
       style: GoogleFonts.poppins(
         fontSize: 16,
         color: const Color(0xFF64748B),
-        height: 1.5,
+        height: 1.6,
       ),
       textAlign: TextAlign.center,
     );
   }
 
-  Widget _buildCategoryGrid(List<Map<String, dynamic>> categories) {
-    return Wrap(
-      spacing: 16,
-      runSpacing: 16,
-      alignment: WrapAlignment.center,
-      children: categories.map((category) {
-        final gradientColors = category['gradient'] as List<Color>;
-        return GestureDetector(
-          onTap: () {
-            HapticFeedback.lightImpact();
-            onCategorySelected(category['name'] as String);
-          },
-          child: _buildCategoryCard(category, gradientColors),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildCategoryCard(
-    Map<String, dynamic> category,
-    List<Color> gradientColors,
-  ) {
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradientColors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  // WIDGET NUEVO: El botón para continuar.
+  Widget _buildContinueButton() {
+    return ElevatedButton(
+      onPressed: () {
+        HapticFeedback.lightImpact();
+        // Simplemente llamamos a la función que nos pasaron,
+        // la lógica estará en el widget padre.
+        onOnboardingComplete();
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
         ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: gradientColors.first.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        elevation: 5,
+        shadowColor: AppColors.primary.withOpacity(0.4),
       ),
-      child: Column(
-        children: [
-          Icon(
-            category['icon'] as IconData,
-            color: Colors.white,
-            size: 32,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            category['name'] as String,
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 16,
-            ),
-          ),
-        ],
+      child: Text(
+        'Entendido',
+        style: GoogleFonts.poppins(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

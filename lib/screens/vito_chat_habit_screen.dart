@@ -1,9 +1,10 @@
+// lib/screens/vito_chat_habit_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'dart:async';
@@ -35,16 +36,91 @@ class HabitBuilder {
   String? unit;
 
   void updateWith(Map<String, dynamic> data) {
-    if (data.containsKey('type')) type = data['type'];
+    // Mapeo del nuevo formato al formato esperado por la app
+    
+    // 1. Mapear habitType a type
+    if (data.containsKey('habitType')) {
+      final habitType = data['habitType'];
+      switch (habitType) {
+        case 'TIMED_SESSION':
+          type = 'timed';
+          break;
+        case 'QUANTIFIABLE':
+          type = 'quantifiable';
+          break;
+        case 'BINARY':
+        case 'NEGATIVE':
+        default:
+          type = 'simple';
+          break;
+      }
+    }
+    
+    // 2. Mapear name directamente
     if (data.containsKey('name')) name = data['name'];
+    
+    // 3. Mapear category
     if (data.containsKey('category')) category = data['category'];
+    
+    // 4. Mapear recurrence.daysOfWeek a days
+    if (data.containsKey('recurrence')) {
+      final recurrence = data['recurrence'] as Map<String, dynamic>;
+      
+      // Convertir daysOfWeek (bitmap) a lista de días
+      if (recurrence.containsKey('daysOfWeek') && recurrence['daysOfWeek'] != null) {
+        final daysOfWeekBitmap = recurrence['daysOfWeek'] as int;
+        days = _convertDaysOfWeekBitmapToList(daysOfWeekBitmap);
+      } else if (recurrence['frequency'] == 'DAILY') {
+        // Si es diario, asignar todos los días
+        days = [1, 2, 3, 4, 5, 6, 7];
+      }
+    }
+    
+    // 5. Mapear reminder.time a time
+    if (data.containsKey('reminder') && data['reminder'] != null) {
+      final reminder = data['reminder'] as Map<String, dynamic>;
+      if (reminder.containsKey('time')) {
+        final timeParts = (reminder['time'] as String).split(':');
+        time = TimeOfDay(
+          hour: int.parse(timeParts[0]), 
+          minute: int.parse(timeParts[1])
+        );
+      }
+    }
+    
+    // 6. Mapear goal.targetValue a targetValue
+    if (data.containsKey('goal') && data['goal'] != null) {
+      final goal = data['goal'] as Map<String, dynamic>;
+      if (goal.containsKey('targetValue')) {
+        final value = goal['targetValue'];
+        if (value is String) {
+          targetValue = int.tryParse(value);
+        } else if (value is num) {
+          targetValue = value.toInt();
+        }
+      }
+      
+      // Mapear unit
+      if (goal.containsKey('unit')) {
+        unit = goal['unit'] as String?;
+      }
+    }
+    
+    // Manejo del formato anterior (por si acaso)
+    if (data.containsKey('type')) type = data['type'];
     if (data.containsKey('days')) days = List<int>.from(data['days']);
     if (data.containsKey('time')) {
       final timeParts = (data['time'] as String).split(':');
       time = TimeOfDay(hour: int.parse(timeParts[0]), minute: int.parse(timeParts[1]));
     }
-    // La IA ahora nos da targetValue y unit directamente.
-    if (data.containsKey('targetValue')) targetValue = (data['targetValue'] as num?)?.toInt();
+    if (data.containsKey('targetValue')) {
+      final value = data['targetValue'];
+      if (value is String) {
+        targetValue = int.tryParse(value);
+      } else if (value is num) {
+        targetValue = value.toInt();
+      }
+    }
     if (data.containsKey('unit')) unit = data['unit'];
   }
 
@@ -61,7 +137,30 @@ class HabitBuilder {
   }
 
   bool get isReadyForConfirmation => name != null && days != null && days!.isNotEmpty && time != null;
+  
+  // Método para verificar qué información falta
+  String? getMissingInfo() {
+    if (name == null) return 'el nombre del hábito';
+    if (days == null || days!.isEmpty) return 'los días en que quieres hacerlo';
+    if (time == null) return 'la hora específica';
+    if (type == 'timed' && targetValue == null) return 'la duración en minutos';
+    if (type == 'quantifiable' && targetValue == null) return 'la cantidad objetivo';
+    return null;
+  }
+  
+  // Función auxiliar para convertir días de la semana
+  List<int> _convertDaysOfWeekBitmapToList(int bitmap) {
+    List<int> days = [];
+    for (int i = 0; i < 7; i++) {
+      if (bitmap & (1 << i) != 0) {
+        // Convertir de 0-6 a 1-7 (Lunes = 1, Domingo = 7)
+        days.add(i + 1);
+      }
+    }
+    return days;
+  }
 }
+
 
 class VitoChatHabitSheet extends StatefulWidget {
   final Habit? habit;
@@ -140,7 +239,11 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
           });
         } else {
           _addVitoMessage(
-            '¡Hola $_userName! 👋\n\nSoy Vito, tu asistente de bienestar. ¿Qué hábito te gustaría crear?\n\nPuedes decirme algo como:\n* "Meditar 10 minutos todas las mañanas"\n* "Acostarme a las 10 pm de lunes a viernes"\n* "Salir a correr 30 min lunes, miércoles y viernes"'
+                        '¡Hola $_userName! 👋\n\nSoy Vito, tu asistente de bienestar. Estoy aquí para ayudarte a construir la vida que deseas, un hábito a la vez.\n\n'
+            'Puedes decirme algo específico como:\n'
+            '• "Meditar 10 minutos todas las mañanas"\n'
+            '• "Salir a correr 30 minutos lunes, miércoles y viernes"\n'
+            '**O si no lo tienes claro, ¡no te preocupes!** Simplemente dime qué área de tu vida te gustaría mejorar (ej: "quiero más energía" o "necesito concentrarme mejor") y lo descubriremos juntos. 🌱'
           );
           
           // Si hay un mensaje inicial (de una sugerencia), procesarlo
@@ -224,43 +327,83 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
     }
   }
 
+// En vito_chat_habit_screen.dart
+
   void _handleAIResponse(String jsonResponse) {
     try {
+      if (jsonResponse.isEmpty || jsonResponse == "null") {
+        throw Exception("La respuesta de la IA llegó vacía o nula.");
+      }
+      
       final response = jsonDecode(jsonResponse);
-      final status = response['status'];
+
+      if (response is! Map<String, dynamic>) {
+        throw Exception("La estructura del JSON no es un mapa válido.");
+      }
+
+      // --- INICIO DE LA CORRECCIÓN DE MEMORIA ---
+      // 1. Extraemos los datos del hábito ANTES del switch.
+      final habitData = response['data'] as Map<String, dynamic>?;
+      
+      // 2. Si la IA nos devuelve cualquier dato, actualizamos nuestra memoria (el HabitBuilder) INMEDIATAMENTE.
+      //    Esto es lo que rompe el bucle.
+      if (habitData != null) {
+        _habitBuilder.updateWith(habitData);
+      }
+      // --- FIN DE LA CORRECCIÓN DE MEMORIA ---
+
+      final status = response['status'] as String?;
 
       switch (status) {
-        case 'greeting':
-          _addVitoMessage(response['message']);
+        case 'exploratory':
+        case 'suggestion':
+          _addVitoMessage(response['message'] ?? 'Cuéntame un poco más...');
           break;
-        
+
+        case 'confidence_check':
+          _addVitoMessage(response['question'] ?? '¿Qué tan seguro te sientes?');
+          break;
+          
         case 'incomplete':
-          _addVitoMessage(response['question']);
+          // Ahora, aunque el hábito esté incompleto, ya hemos guardado lo que tenemos.
+          // Simplemente hacemos la pregunta que nos pide la IA.
+          _addVitoMessage(response['question'] ?? 'Parece que falta información...');
           break;
 
         case 'delete_confirmation':
           _showDeleteConfirmation();
           break;
 
-        case 'complete':
-          final habitData = Map<String, dynamic>.from(response['data']);
-          _habitBuilder.updateWith(habitData);
+        case 'greeting':
+          _addVitoMessage(response['message'] ?? '¡Hola! ¿En qué puedo ayudarte hoy?');
+          break;
 
-          // Una vez que la IA dice que está completo, confirmamos.
-          _confirmHabit();
+        case 'complete':
+          // Cuando el hábito está completo, nuestra memoria (_habitBuilder) ya está actualizada.
+          // Solo necesitamos verificar y confirmar.
+          final missingInfo = _habitBuilder.getMissingInfo();
+          if (missingInfo == null) {
+            _confirmHabit();
+          } else {
+            // Esto actúa como una red de seguridad si la IA cree que está completo pero aún falta algo.
+            _addVitoMessage('¡Casi listo! Solo necesito que me confirmes $missingInfo.');
+          }
           break;
           
         case 'error':
         default:
-          _addVitoMessage(response['message'] ?? 'Lo siento, tuve un problema. ¿Intentamos de nuevo?');
+          _addVitoMessage(response['message'] ?? 'Lo siento, tuve un problema.');
           break;
       }
     } catch (e) {
-      print("Error al decodificar JSON de la IA: $e");
+      print("Error al procesar la respuesta de la IA: $e. Respuesta recibida: '$jsonResponse'");
       _addVitoMessage('No entendí muy bien. ¿Podrías decirlo de otra manera?');
     }
   }
-  
+
+
+
+
   void _confirmHabit() {
     // Construimos el resumen usando la sintaxis CORRECTA de Markdown
     String summary = '¡Perfecto! He preparado tu hábito. Así es como se ve:\n\n';
@@ -767,17 +910,18 @@ Future<void> _updateHabitFromBuilder() async {
   
   Widget _buildMessage(ChatMessage message) {
     final isVito = message.type == MessageType.vito;
-    
-    // Si es un mensaje de botones de acción
+
+    // Si es un mensaje de botones de acción, no cambia
     if (message.text == 'ACTION_BUTTONS') {
       return _buildActionButtons();
     }
-    
-    // Si son botones del modo edición
+
+    // Si son botones del modo edición, no cambia
     if (message.text == 'EDIT_MODE_BUTTONS') {
       return _buildEditModeButtons();
     }
-    
+
+    // El resto de la estructura del widget
     return Padding(
       padding: EdgeInsets.only(
         left: isVito ? 0 : 60,
@@ -808,10 +952,13 @@ Future<void> _updateHabitFromBuilder() async {
             ),
             const SizedBox(width: 8),
           ],
-          
+
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
               decoration: BoxDecoration(
                 color: isVito ? Colors.white : AppColors.primary,
                 borderRadius: BorderRadius.only(
@@ -822,38 +969,32 @@ Future<void> _updateHabitFromBuilder() async {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: (isVito ? Colors.black : AppColors.primary).withOpacity(0.08),
+                    color: (isVito ? Colors.black : AppColors.primary)
+                        .withOpacity(0.08),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
-              child: MarkdownBody(
-                data: message.text,
-                selectable: true,
-                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                  p: GoogleFonts.poppins(
-                    fontSize: 15,
-                    color: isVito ? const Color(0xFF1E293B) : Colors.white,
-                    height: 1.5,
-                  ),
-                  strong: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    color: isVito ? const Color(0xFF1E293B) : Colors.white,
-                  ),
-                  listBullet: GoogleFonts.poppins(
-                    fontSize: 15,
-                    color: isVito ? const Color(0xFF1E293B) : Colors.white,
-                  ),
+              // --- INICIO DE LA CORRECCIÓN ---
+              child: GptMarkdown(
+                message.text, // texto como argumento posicional obligatorio
+                style: GoogleFonts.poppins( // style recibe un TextStyle
+                  fontSize: 15,
+                  color: isVito
+                      ? const Color(0xFF1E293B)
+                      : Colors.white,
+                  height: 1.5,
                 ),
               ),
+              // --- FIN DE LA CORRECCIÓN ---
             ),
           ),
         ],
       ),
     );
   }
-  
+
 
   Widget _buildEditModeButtons() {
     return Padding(
@@ -1154,9 +1295,8 @@ Future<void> _updateHabitFromBuilder() async {
     
     final suggestions = [
       'Meditar 10 minutos todas las mañanas a las 6 am',
-      'Ahorrar 50 mil pesos todos los domingos',
       'Salir a correr 30 minutos lunes, miércoles y viernes a las 7 pm',
-      'Leer 20 páginas antes de dormir',
+      'Leer 20 minutos antes de dormir',
       'Tomar 8 vasos de agua al día',
     ];
     

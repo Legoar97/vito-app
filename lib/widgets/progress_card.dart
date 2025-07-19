@@ -143,67 +143,99 @@ class ProgressCard extends StatelessWidget {
   }
 
   Widget _buildProgressBar(BuildContext context) {
-    return Stack(
-      children: [
-        Container(
-          height: 12,
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(6),
-          ),
-        ),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 800),
-          curve: Curves.easeOutCubic,
-          height: 12,
-          width: MediaQuery.of(context).size.width * progress * 0.75,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [AppColors.primary, Color(0xFF8B5CF6)],
-            ),
-            borderRadius: BorderRadius.circular(6),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+    // --- INICIO DE LA CORRECCIÓN ---
+    // 1. Usamos LayoutBuilder para obtener el ancho real disponible para la barra.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // 'constraints.maxWidth' nos da el ancho exacto del contenedor padre.
+        final availableWidth = constraints.maxWidth;
+
+        return Stack(
+          children: [
+            // El fondo de la barra, que ocupa todo el ancho disponible.
+            Container(
+              height: 12,
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(6),
               ),
-            ],
-          ),
-        ),
-      ],
+            ),
+            // La barra de progreso animada.
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 800),
+              curve: Curves.easeOutCubic,
+              height: 12,
+              // 2. Calculamos el ancho basándonos en el espacio real, no en la pantalla.
+              //    Y eliminamos el número mágico "0.75".
+              width: availableWidth * progress,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppColors.primary, Color(0xFF8B5CF6)],
+                ),
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
+    // --- FIN DE LA CORRECCIÓN ---
   }
 
   Widget _buildFooter() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center, // Ayuda a alinear verticalmente
       children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+        // --- INICIO DE LA CORRECCIÓN ---
+        // 1. Envolvemos la Row interna en un Expanded.
+        //    Esto le dice que ocupe todo el espacio que pueda,
+        //    empujando al otro widget hacia el borde derecho.
+        Expanded(
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.emoji_events,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
               ),
-              child: Icon(
-                Icons.emoji_events,
-                color: AppColors.primary,
-                size: 20,
+              const SizedBox(width: 12),
+              // 2. Envolvemos el Text en Flexible.
+              //    Esto es una buena práctica dentro de un Expanded para
+              //    asegurarnos de que el texto se cortará con "..." si
+              //    fuera extremadamente largo, en lugar de desbordarse.
+              Flexible(
+                child: Text(
+                  '${(progress * 100).toInt()}% completado',
+                  style: GoogleFonts.poppins(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                  overflow: TextOverflow.ellipsis, // Evita desbordamientos de texto
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              '${(progress * 100).toInt()}% completado',
-              style: GoogleFonts.poppins(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
+        // --- FIN DE LA CORRECCIÓN ---
+
+        // Si el progreso es 100%, la insignia ahora tendrá su propio espacio
+        // sin causar un desbordamiento.
         if (progress == 1.0) _buildCompletedBadge(),
       ],
     );

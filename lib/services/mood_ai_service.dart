@@ -20,13 +20,29 @@ class MoodAiService {
     ];
 
     try {
-      final response = await VertexAIService.getSmartResponse(
+      // --- INICIO DE LA CORRECCIÓN ---
+
+      // 1. Obtenemos la respuesta "cruda" de la IA, que puede contener el marcador [Nombre]
+      final rawResponse = await VertexAIService.getSmartResponse(
         conversationHistory: simulatedHistory,
         userContext: userContext,
       );
-      return response;
+
+      // 2. Extraemos el nombre del usuario del contexto.
+      //    Usamos un valor de respaldo ('tú') por si el nombre no estuviera disponible.
+      final userName = userContext['displayName'] as String? ?? 'tú';
+      
+      // 3. Obtenemos solo el primer nombre para un saludo más personal.
+      final firstName = userName.split(' ').first;
+
+      // 4. Reemplazamos el marcador de posición con el nombre real y devolvemos la respuesta final.
+      return rawResponse.replaceAll('[Nombre]', firstName);
+
+      // --- FIN DE LA CORRECCIÓN ---
+
     } catch (e) {
       print('🚨 Error en generateMoodResponse, usando fallback: $e');
+      // La lógica de respaldo no se modifica.
       return _getFallbackResponse(mood);
     }
   }
@@ -89,4 +105,4 @@ class MoodAiService {
     };
     return prompts[mood] ?? '¿Qué necesitas expresar en este momento?';
   }
-} // ← ¡No olvides esta llave de cierre!
+}
