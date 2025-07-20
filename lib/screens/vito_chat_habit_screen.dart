@@ -445,8 +445,6 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
   Future<void> _createHabitFromBuilder() async {
     setState(() => _isProcessing = true);
     
-    // --- CAMBIO CLAVE: Bloqueamos la UI ANTES de empezar ---
-    // Removemos los botones de acción para que el usuario no pueda volver a interactuar.
     _messages.removeWhere((m) => m.text == 'ACTION_BUTTONS');
     HapticFeedback.mediumImpact();
 
@@ -466,41 +464,61 @@ class _VitoChatHabitSheetState extends State<VitoChatHabitSheet> with TickerProv
         'targetValue': _habitBuilder.targetValue,
         'unit': _habitBuilder.unit,
         'notifications': true,
-        'completions': {}, // Inicia como mapa vacío
+        'completions': {},
         'createdAt': Timestamp.now(),
         'streak': 0,
         'longestStreak': 0,
       };
       
+      // PASO 1: Crear el hábito en Firestore
       final docRef = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('habits')
           .add(habit);
       
-      // Solo programamos notificaciones si el hábito se creó correctamente
-      await NotificationService.scheduleHabitNotification(
-        habitId: docRef.id,
-        habitName: _habitBuilder.name!,
-        time: _habitBuilder.time!,
-        days: _habitBuilder.days!,
-      );
+      // PASO 2: Intentar programar notificaciones (con su propio manejo de error)
+      try {
+        await NotificationService.scheduleHabitNotification(
+          habitId: docRef.id,
+          habitName: _habitBuilder.name!,
+          time: _habitBuilder.time!,
+          days: _habitBuilder.days!,
+        );
+      } catch (notificationError) {
+        print("🚨 ERROR AL PROGRAMAR NOTIFICACIONES: $notificationError");
+        if (mounted) {
+          _addVitoMessage(
+            '¡Tu hábito "${_habitBuilder.name}" fue creado con éxito! ✅\n\nSin embargo, hubo un problema al programar las notificaciones. Puedes intentar activarlas más tarde en la configuración del hábito.',
+            withTyping: false
+          );
+          // Aún así cerramos la pantalla porque el hábito SÍ se creó
+          Future.delayed(const Duration(seconds: 4), () {
+            if (mounted) Navigator.of(context).pop();
+          });
+          return; // Salimos de la función para no mostrar el mensaje de éxito genérico
+        }
+      }
       
+      // Si todo fue bien (creación Y notificaciones)
       if (!mounted) return;
       
       _addVitoMessage('¡Listo! ✅\n\nTu hábito "${_habitBuilder.name}" ha sido creado. ¡Vamos por ese cambio positivo! 💪', withTyping: false);
       
-      // Esperamos un poco para que el usuario lea el mensaje y luego cerramos.
       Future.delayed(const Duration(seconds: 3), () {
         if (mounted) Navigator.of(context).pop();
       });
       
     } catch (e) {
-      // Si algo falla, ahora sí mostramos el error.
-      print("Error creando hábito: $e"); // Bueno para depurar
+      // Este bloque ahora solo se ejecutará si falla la creación en Firestore
+      print("🚨 ERROR CRÍTICO AL CREAR HÁBITO EN FIRESTORE: $e");
       if (mounted) {
-        _addVitoMessage('Oh no 😔\n\nHubo un problema al crear tu hábito. ¿Podrías intentarlo de nuevo desde el principio?', withTyping: false);
-        setState(() => _isProcessing = false);
+        _addVitoMessage('Oh no 😔\n\nHubo un problema al guardar tu hábito en la nube. ¿Podrías intentarlo de nuevo desde el principio?', withTyping: false);
+        // Devolvemos los botones para que el usuario pueda reintentar
+        setState(() {
+            _messages.add(ChatMessage(text: 'ACTION_BUTTONS', type: MessageType.vito, timestamp: DateTime.now()));
+           _isProcessing = false;
+        });
       }
     }
   }

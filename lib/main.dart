@@ -167,6 +167,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.initialize();
+  final granted = await NotificationService.requestNotificationPermissions();
+  if (!granted) {
+    print('⚠️ Permisos de notificación NO concedidos. Las notificaciones no funcionarán.');
+  }
   NotificationService.handleForegroundMessages();
 
   FirebaseAuth.instance.authStateChanges().listen((User? user) {

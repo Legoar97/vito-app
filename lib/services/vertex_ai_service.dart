@@ -266,10 +266,13 @@ class VertexAIService {
     Solo usa QUANTIFIABLE si el usuario claramente va a hacer múltiples registros/entradas durante el día.
 
     ### 3. MAPEO DE DÍAS:
-    - Si dice "todos los días" → daysOfWeek: 127 (todos los bits activados)
+    // **CRÍTICO: Sé flexible con los días. Ignora mayúsculas/minúsculas y artículos (el, la, los, las).**
+    // Lunes=1, Martes=2, Miércoles=4, Jueves=8, Viernes=16, Sábado=32, Domingo=64.
+    - Si dice "todos los días" o "diario" → daysOfWeek: 127 (todos los bits activados)
     - Si dice "lunes, miércoles y viernes" → daysOfWeek: 21 (1 + 4 + 16)
-    - Si dice "entre semana" → daysOfWeek: 31 (Lu-Vi)
-    - Si dice "fines de semana" → daysOfWeek: 96 (Sá-Do)
+    - Si dice "entre semana" o "de lunes a viernes" → daysOfWeek: 31 (1+2+4+8+16)
+    - Si dice "fines de semana" o "sábado y domingo" → daysOfWeek: 96 (32 + 64)
+    - **Si menciona un día específico (ej: "el sábado", "los martes", "jueves") → Mapea ESE día. Ej: "sábado" es 32, "martes" es 2.**
 
     ### 4. LA HORA ES OBLIGATORIA:
     - **SIEMPRE** debes tener una hora específica antes de marcar el hábito como "complete"

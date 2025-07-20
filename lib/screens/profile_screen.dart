@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart'; // Agregar esta importación
 import 'dart:ui';
 
 // Importa los providers y colores de tu proyecto real
@@ -47,6 +48,26 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     _fadeController.dispose();
     _deletePasswordController.dispose();
     super.dispose();
+  }
+
+  // Método para abrir URLs externas
+  Future<void> _launchURL(String url) async {
+    final Uri uri = Uri.parse(url);
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No se pudo abrir el enlace')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al abrir el enlace')),
+        );
+      }
+    }
   }
 
   void _showEditNameDialog() {
@@ -473,9 +494,15 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          TextButton(onPressed: () {}, child: Text('Términos', style: GoogleFonts.poppins(fontSize: 14, color: Theme.of(context).textTheme.bodyMedium?.color))),
+          TextButton(
+            onPressed: () => _launchURL('https://legoar97.github.io/vito-legal/terminos.html'),
+            child: Text('Términos', style: GoogleFonts.poppins(fontSize: 14, color: Theme.of(context).textTheme.bodyMedium?.color)),
+          ),
           Container(height: 20, width: 1, color: Theme.of(context).dividerColor),
-          TextButton(onPressed: () {}, child: Text('Privacidad', style: GoogleFonts.poppins(fontSize: 14, color: Theme.of(context).textTheme.bodyMedium?.color))),
+          TextButton(
+            onPressed: () => _launchURL('https://legoar97.github.io/vito-legal/privacidad.html'),
+            child: Text('Privacidad', style: GoogleFonts.poppins(fontSize: 14, color: Theme.of(context).textTheme.bodyMedium?.color)),
+          ),
         ],
       ),
     );
@@ -539,7 +566,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
             ],
           ),
           const SizedBox(height: 4),
-          Text('Versión 1.2.0', style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color)),
+          Text('Versión 1.0.1', style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color)),
           const SizedBox(height: 4),
           Text('Hecho con 💜 para tu bienestar', style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).textTheme.bodySmall?.color)),
         ],

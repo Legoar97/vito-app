@@ -1,83 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-    
-    <!-- =================== PERMISOS NECESARIOS =================== -->
-    <!-- Internet (necesario para Firebase) -->
+          xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ========================================================================= -->
+    <!--                           SECCIÓN DE PERMISOS                             -->
+    <!-- ========================================================================= -->
+
+    <!-- Permiso de red -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    
-    <!-- Permiso para notificaciones en Android 13+ -->
+
+    <!-- Permisos de notificaciones (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    
-    <!-- Permiso para que flutter_local_notifications pueda programar alarmas exactas -->
+
+    <!-- Permisos de alarmas exactas -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <!-- Quitamos el maxSdkVersion para que también aplique en Android 16+ -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
-    
-    <!-- Permiso genérico para servicios en primer plano -->
+
+    <!-- Permisos de ejecución en segundo plano -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    
-    <!-- Permiso específico para el tipo de servicio que usamos (sincronización de datos/timer) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
-    
-    <!-- Permisos para que el servicio se reinicie después de reiniciar el dispositivo -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-    
-    <!-- Permiso para vibración (opcional, para notificaciones) -->
     <uses-permission android:name="android.permission.VIBRATE"/>
-    
-    <!-- Permiso para despertar el dispositivo (opcional, para notificaciones) -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <!-- =================== FIN DE PERMISOS =================== -->
-    
+
+    <!-- ========================================================================= -->
+    <!--                        CONFIGURACIÓN PRINCIPAL                            -->
+    <!-- ========================================================================= -->
     <application
-        android:label="Vito"
         android:name="${applicationName}"
+        android:label="Vito"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false"
         android:requestLegacyExternalStorage="false"
         tools:targetApi="34">
-        
-        <!-- Actividad principal -->
+
+        <!-- Actividad principal de Flutter -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            
-            <!-- Tema para cuando la app está cargada -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme"/>
-            
-            <!-- Intent filter para lanzar la app -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        
-        <!-- =================== SERVICIOS =================== -->
-        <!-- CORRECCIÓN: Agregado tools:replace="android:exported" -->
+
+        <!-- ========================================================================= -->
+        <!--        SERVICIOS Y RECEPTORES (Componentes de fondo y de arranque)      -->
+        <!-- ========================================================================= -->
+
+        <!-- Servicio de flutter_background_service -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
-            android:stopWithTask="false"
             tools:replace="android:exported"/>
-        
-        <!-- =================== RECEPTORES =================== -->
-        <!-- Receptor para notificaciones programadas -->
-        <receiver 
+
+        <!-- Flutter Local Notifications -->
+        <receiver
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
             android:exported="false"/>
-        
-        <!-- Receptor para notificaciones al reiniciar el dispositivo -->
-        <receiver 
+
+        <receiver
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
@@ -85,34 +78,35 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
-        
-        <!-- Receptor para acciones de notificación -->
+
         <receiver
             android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
             android:exported="false"/>
-        
-        <!-- =================== METADATA =================== -->
-        <!-- Flutter embedding version -->
+
+        <!-- ========================================================================= -->
+        <!--                   METADATOS Y CONFIGURACIONES ADICIONALES                -->
+        <!-- ========================================================================= -->
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
-        
-        <!-- Canal de notificación por defecto para FCM (si usas Firebase Messaging) -->
+
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="high_importance_channel"/>
-        
-        <!-- Ícono de notificación por defecto (opcional) -->
+
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_notification_icon"/>
+
     </application>
-    
-    <!-- Queries para compartir texto -->
+
+    <!-- Para que puedan resolverse correctamente intents de procesamiento de texto -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
     </queries>
+
 </manifest>

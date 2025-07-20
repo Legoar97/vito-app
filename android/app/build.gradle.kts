@@ -1,4 +1,3 @@
-// android/app/build.gradle.kts
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -6,50 +5,63 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+// Importa las clases necesarias
+import java.util.Properties
+import java.io.FileInputStream
+
+// Carga las propiedades del keystore de forma segura
+val keystorePropertiesFile = rootProject.file("../keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
 android {
-    // CORREGIDO: namespace debe coincidir con applicationId
     namespace = "com.vito.habits"
-    
-    // CORREGIDO: Valores explícitos para Android 13+ y notificaciones
     compileSdk = 35
     ndkVersion = "27.0.12077973"
-    
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
         isCoreLibraryDesugaringEnabled = true
     }
-    
+
     kotlinOptions {
         jvmTarget = "1.8"
     }
-    
+
+    // --- CONFIGURACIÓN DE FIRMA ---
+    // Se añade la configuración para 'release'
+    signingConfigs {
+        create("release") {
+            storeFile = file(keystoreProperties.getProperty("storeFile", "../app/vito-key.jks"))
+            storePassword = keystoreProperties.getProperty("storePassword")
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.vito.habits"
-        
-        // Versión mínima de Android
         minSdk = 23
-        
-        // CORREGIDO: targetSdk explícito para Android 14
         targetSdk = 35
-        
-        // Versiones de la app
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        
-        // Soporte para múltiples arquitecturas
+
         ndk {
             abiFilters += listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
         }
     }
-    
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
-            
-            // IMPORTANTE: Ambas opciones deben estar sincronizadas
+            // --- ASIGNACIÓN DE FIRMA ---
+            // Se asigna la nueva firma de release
+            signingConfig = signingConfigs.getByName("release")
+
             isMinifyEnabled = true
-            isShrinkResources = true  // AÑADIDO: Explícitamente deshabilitado
+            isShrinkResources = true
             
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -58,7 +70,6 @@ android {
         }
         debug {
             signingConfig = signingConfigs.getByName("debug")
-            // AÑADIDO: Asegurar que debug tampoco tenga problemas
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -70,13 +81,12 @@ flutter {
 }
 
 dependencies {
-    // AÑADIDO: Dependencias necesarias para Android 13+
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
-// SOLUCIÓN PERMANENTE PARA EL ERROR DE APK NO ENCONTRADO
+// Se mantiene tu bloque de tareas personalizadas
 afterEvaluate {
     tasks.register("copyFlutterApk") {
         doLast {
@@ -117,27 +127,21 @@ afterEvaluate {
 
     tasks.register("copyFlutterAabRelease") {
         doLast {
-            // 1. Ruta donde Gradle genera el .aab
             val sourceAab = file("build/outputs/bundle/release/app-release.aab")
-            // 2. Ruta donde la herramienta de Flutter lo busca
             val destDir = file("../../build/app/outputs/bundle/release")
 
             if (sourceAab.exists()) {
-                // 3. Creamos la carpeta de destino si no existe
                 destDir.mkdirs()
-                // 4. Copiamos el archivo
                 sourceAab.copyTo(
                     file("${destDir}/app-release.aab"),
                     overwrite = true
                 )
                 println("AAB de Release copiado a: ${destDir}/app-release.aab")
             } else {
-                // Un mensaje por si algo sale mal en el futuro
                 println("ADVERTENCIA: No se encontró app-release.aab en la ruta de origen.")
             }
         }
     }
 
-    // 5. Le decimos a Gradle que ejecute nuestra tarea justo después de crear el bundle
     tasks.findByName("bundleRelease")?.finalizedBy("copyFlutterAabRelease")
 }
